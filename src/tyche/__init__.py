@@ -1,0 +1,1 @@
+from tyche.interface import tyche_prng_impl as impl
