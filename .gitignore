@@ -3,3 +3,4 @@ __pycache__/
 *.py[cod]
 tests/crush/bridge/PractRand.zip
 tests/crush/bridge/TestU01.zip
+benchmarks/bench_throughput_results.txt
