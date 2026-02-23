@@ -32,13 +32,13 @@ import jax.numpy as jnp
 def tyche_embed(raw_data_16, block_size):
     """
     Embed raw 16-bit data into a guaranteed invertible GL_B(Z_65536) matrix.
+
+    We apply the odd/even masks in-place; this keeps all 16 input bits
+    except the constrained LSBs and avoids throwing away entropy.
     """
     B = block_size
     matrix = raw_data_16[:B * B].reshape((B, B)).astype(jnp.uint16)
-    
-    # SHIFT LEFT by 1 to protect the original entropy (Bit 0) from structural masks
-    matrix = matrix << 1
-    
+
     r, c = jnp.indices((B, B))
     # Upper triangle EVEN (clear LSB), Diagonal ODD (set LSB)
     matrix = jnp.where(r < c, matrix & jnp.uint16(0xFFFE), matrix)
@@ -118,9 +118,21 @@ def make_hash_parallel(num_rounds: int):
         return jax.vmap(_hash_block, in_axes=(0, None))(counter_blocks, weight_matrices)
     return hash_parallel
 
+def _mix_key_const(key: jnp.ndarray) -> jnp.uint32:
+    """Combine all words of the key into a single 32‑bit mixing constant.
+
+    Previously only key[0] was used, leaving the remainder of a large key
+    completely ignored by counter block generation.  We now xor-fold the
+    entire key and apply a golden-ratio offset to spread entropy.
+    """
+    # xor-reduce then multiply by 2654435761 (Knuth's golden ratio)
+    folded = jnp.bitwise_xor.reduce(key.astype(jnp.uint32))
+    return folded * jnp.uint32(2654435761)
+
+
 def make_counter_blocks(key: jnp.ndarray, offset: int, num_blocks: int, block_size: int) -> jnp.ndarray:
     B = block_size
-    key_mix = key[0]  
+    key_mix = _mix_key_const(key)
     block_indices = jnp.arange(num_blocks, dtype=jnp.uint32) + jnp.uint32(offset)
 
     def make_block(idx):
@@ -175,6 +187,16 @@ def _apply_perturbation(weight_matrices: jnp.ndarray, perturbation: jnp.ndarray)
 
 def derive_child_key(key: jnp.ndarray, value: jnp.ndarray, num_rounds: int, block_size: int) -> jnp.ndarray:
     weight_matrices = _key_to_matrices(key, num_rounds, block_size)
-    perturbation = _expand_scalar_to_matrix(value, block_size)
-    new_matrices = _apply_perturbation(weight_matrices, perturbation)
+
+    # Generate a distinct perturbation for each round by incorporating
+    # the round index into the hash.  This avoids siblings having
+    # identical offsets across all rounds, which would make them easy to
+    # correlate.
+    round_indices = jnp.arange(num_rounds, dtype=jnp.uint64)
+    def perturb_round(W_r, r):
+        P = _expand_scalar_to_matrix(value + r, block_size)
+        # Quadratic perturbation per round
+        return jnp.matmul(W_r, W_r) + P
+
+    new_matrices = jax.vmap(perturb_round)(weight_matrices, round_indices)
     return _matrices_to_key(new_matrices)

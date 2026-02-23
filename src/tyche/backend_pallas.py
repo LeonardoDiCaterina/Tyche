@@ -17,6 +17,8 @@ class PallasBackend:
             for r in range(self.R):                         # unrolled at trace time
                 W_r = weights_ref[r, :, :]                  # (B,B) uint32
                 acc = pl.dot(x, x) + W_r                    # fused matmul+add
+                # ALU Bridge: include odd-multiply to match JAX backend
+                acc = acc * jnp.uint32(0x94D049BB)
                 x = (acc ^ (acc >> jnp.uint32(16))).astype(jnp.uint16)
                 x = x.astype(jnp.uint32)                   # widen for next round
             out_ref[...] = x.astype(jnp.uint16)
@@ -43,6 +45,7 @@ class PallasBackend:
             for r in range(self.R):
                 W_r = weights_ref[r, :, :]
                 acc = pl.dot(x, x) + W_r
+                acc = acc * jnp.uint32(0x94D049BB)
                 x = (acc ^ (acc >> jnp.uint32(16))).astype(jnp.uint16)
                 x = x.astype(jnp.uint32)
             pl.store(out_ref, (i, pl.dslice(B), pl.dslice(B)), x.astype(jnp.uint16))

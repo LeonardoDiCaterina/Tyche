@@ -111,15 +111,15 @@ def test_bench_threefry_split(benchmark):
 @pytest.mark.benchmark(group="fold_in")
 def test_bench_tyche_fold_in(benchmark):
     f = jax.jit(lambda k: jax.random.fold_in(k, 42))
-    f(TYCHE_KEY)
-    benchmark(lambda: f(TYCHE_KEY))
+    f(TYCHE_KEY).block_until_ready()
+    benchmark(lambda: f(TYCHE_KEY).block_until_ready())
 
 
 @pytest.mark.benchmark(group="fold_in")
 def test_bench_threefry_fold_in(benchmark):
     f = jax.jit(lambda k: jax.random.fold_in(k, 42))
-    f(THREEFRY_KEY)
-    benchmark(lambda: f(THREEFRY_KEY))
+    f(THREEFRY_KEY).block_until_ready()
+    benchmark(lambda: f(THREEFRY_KEY).block_until_ready())
 
 
 # ---------------------------------------------------------------------------
