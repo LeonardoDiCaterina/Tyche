@@ -6,15 +6,15 @@ A JAX-compatible PRNG built on iterated quadratic maps over integer matrix rings
 
 ### Algebraic setting
 
-Tyche operates over the matrix ring $M_B(\mathbb{Z}_{2^{16}})$ — the ring of $B \times B$ matrices with entries in unsigned 16-bit integers. The core mixing primitive is the quadratic map:
+Tyche operates over the matrix ring $M_B(\mathbb{Z}\_{2^{16}})$ — the ring of $B \times B$ matrices with entries in unsigned 16-bit integers. The core mixing primitive is the quadratic map:
 
 $$X \mapsto f(X) = \tau\!\bigl(\,c \cdot (X^2 + W_r) \oplus (c \cdot (X^2 + W_r) \gg 16)\,\bigr)$$
 
-where $X^2 = X \cdot X$ is matrix multiplication over $\mathbb{Z}_{2^{32}}$, $W_r$ is a key-dependent weight matrix, $c$ is an odd constant (bijection on $\mathbb{Z}_{2^{32}}$), and $\tau$ truncates to $\mathbb{Z}_{2^{16}}$.
+where $X^2 = X \cdot X$ is matrix multiplication over $\mathbb{Z}\_{2^{32}}$, $W_r$ is a key-dependent weight matrix, $c$ is an odd constant (bijection on $\mathbb{Z}\_{2^{32}}$), and $\tau$ truncates to $\mathbb{Z}\_{2^{16}}$.
 
 ### Round function
 
-Given a counter block $x_0 \in M_B(\mathbb{Z}_{2^{16}})$ and key matrices $\{W_r\}_{r=0}^{R-1}$:
+Given a counter block $x_0 \in M_B(\mathbb{Z}\_{2^{16}})$ and key matrices $\{W_r\}_{r=0}^{R-1}$:
 
 $$x_{r+1} = \tau\!\bigl(\,\text{mix}(x_r^2 + W_r)\,\bigr), \qquad r = 0, \ldots, R-1$$
 
@@ -28,7 +28,7 @@ where $\text{mix}(a) = (a \cdot c) \oplus ((a \cdot c) \gg 16)$. The three stage
 
 ### Invertibility guarantee
 
-Counter blocks are embedded into $GL_B(\mathbb{Z}_{2^{16}})$ (invertible matrices) via a triangular embedding: diagonal entries are forced odd, strict upper triangle entries even. Since $\det(X)$ is then odd (product of diagonal), $X$ is a unit in $M_B(\mathbb{Z}_{2^{16}})$, preventing degenerate zero-absorption under squaring.
+Counter blocks are embedded into $GL_B(\mathbb{Z}\_{2^{16}})$ (invertible matrices) via a triangular embedding: diagonal entries are forced odd, strict upper triangle entries even. Since $\det(X)$ is then odd (product of diagonal), $X$ is a unit in $M_B(\mathbb{Z}_{2^{16}})$, preventing degenerate zero-absorption under squaring.
 
 ### Key derivation (split / fold_in)
 
