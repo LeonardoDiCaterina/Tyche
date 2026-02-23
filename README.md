@@ -28,26 +28,29 @@ where $\text{mix}(a) = (a \cdot c) \oplus ((a \cdot c) \gg 16)$. The three stage
 
 ### Invertibility guarantee
 
-Counter blocks are embedded into $GL_B(\mathbb{Z}\_{2^{16}})$ (invertible matrices) via a triangular embedding: diagonal entries are forced odd, strict upper triangle entries even. Since $\det(X)$ is then odd (product of diagonal), $X$ is a unit in $M_B(\mathbb{Z}_{2^{16}})$, preventing degenerate zero-absorption under squaring.
+Counter blocks are embedded into $GL_B(\mathbb{Z}\_{2^{16}})$ (invertible matrices) via a triangular embedding: diagonal entries are forced odd, strict upper triangle entries even. This structure guarantees a unit determinant and prevents zero-absorption under squaring, but it does introduce a mild bias in the first round’s inputs (upper‑triangle elements have LSB=0).  Empirically the bias is undetectable after $R=4$ rounds for $B=4$ (measurement requires thousands of samples; formal diffusion bounds remain an open question), and the trade‑off is deemed acceptable for the strong invertibility guarantee.
 
 ### Key derivation (split / fold_in)
 
 Child keys are derived by a quadratic perturbation of the weight matrices:
 
-$$W_r' = W_r^2 + P(i)$$
+$$W_r' = W_r^2 + P(i, r)$$
 
-where $P(i)$ is a perturbation matrix expanded from the child index $i$ via a 2-multiply bijective hash:
+where $P(i, r)$ is a round-dependent perturbation matrix obtained by hashing the child index $i$ together with the round number $r$ using a 2-multiply bijective hash:
 
 $$h(x) = \text{xor-shift-multiply-xor-shift-multiply-xor-shift}(x)$$
 
-This is branch-free, has no sequential dependency, and maps directly to a GPU thread ID.
+A fresh perturbation is computed for **each round** (e.g. by mixing the round index into $h$) so that sibling keys derived from the same parent differ unpredictably across rounds.  Earlier versions used a single shared $P(i)$ for all rounds, which created linear relationships between siblings.
+
 
 ### Nonlinearity analysis
 
 - **Integer matmul** provides carry-chain nonlinearity, but low-order bits of $\mathbb{Z}_{2^n}$ multiplication are linear over $GF(2)$.
 - **Odd multiply** compensates: multiplication by an odd constant is a bijection on $\mathbb{Z}_{2^{32}}$ that forces carry propagation from LSB to MSB, injecting nonlinearity at every bit position.
 - **XOR fold** transports the now-nonlinear high bits back into the low 16 bits before truncation.
-- Per-round algebraic degree: $\deg \approx 2$ (from squaring), compounding to $2^R$ over $R$ rounds.
+- One quadratic layer per round provides nonlinearity; successive rounds compound that effect, giving very rapid growth in complexity even though each round is simple.
+
+> **Note:** we truncate to 16 bits each round, so the algebraic degree of the low-order output bits is much lower than what a full‑precision analysis would suggest. The stated growth mainly applies to the high‑bits that survive the truncation.
 
 ## Hardware mapping
 
@@ -64,7 +67,7 @@ The dominant operation $X^2 + W$ is a fused matrix-multiply-accumulate:
                                   acc_32
 ```
 
-- **GPU (NVIDIA):** Maps to `IMMA` (INT8→INT32) or `HMMA` (FP16→FP32) tensor core instructions. For $B=4$, a single warp-level MMA fills one tensor core tile.
+- **GPU (NVIDIA):** Maps to `IMMA` (INT8→INT32) or `HMMA` (FP16→FP32) tensor core instructions. (Practical note: on Ampere/Hopper the smallest full INT8 tile is 8×16×32; a 4×4 matmul cannot fill a tile and executes on scalar ALUs or as a partially-utilised tile. Larger $B$ values are required to amortise tensor core overhead.)
 - **TPU:** Maps to MXU systolic array; int8→int32 accumulation is native.
 - **CPU:** Standard GEMM; benefits from AVX-512 VNNI for int8 paths.
 
