@@ -25,7 +25,15 @@ from tyche.algorithm import (
 
 class TycheConfig:
     # Changed default num_rounds to 4 based on SAC tests
-    def __init__(self, block_size: int = 4, num_rounds: int = 4):
+    def __init__(self, block_size: int = 4, num_rounds: int = 4, backend:str = "jax"):
+        
+        if backend == "pallas":
+            from tyche.backend_pallas import PallasBackend
+            self._backend = PallasBackend(num_rounds, block_size)
+        else:
+            from tyche.backend_jax import JaxBackend
+            self._backend = JaxBackend(num_rounds, block_size)
+        
         if block_size not in (4, 8, 16, 32):
             raise ValueError(f"block_size must be one of 4, 8, 16, 32 — got {block_size}")
         if num_rounds < 1:

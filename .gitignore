@@ -4,3 +4,4 @@ __pycache__/
 tests/crush/bridge/PractRand.zip
 tests/crush/bridge/TestU01.zip
 benchmarks/bench_throughput_results.txt
+src/.DS_Store

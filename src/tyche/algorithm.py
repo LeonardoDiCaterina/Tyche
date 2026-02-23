@@ -15,8 +15,9 @@ Algorithm per block:
   x = tyche_embed(counter_block)       Embed into GL_B(Z_256)
   for r in range(NUM_ROUNDS):
       x = matmul(x, x) + W_r          Quadratic FMA (int32 accumulation)
-      x = (x * LCG_MULT) >> 24        Truncation non-linearity (keeps high 8 bits)
-      x = cast(x, int8)               Back to Z_256
+      x = x * ODD_MULT                Odd-multiply bijection (full carry cascade)
+      x = x ^ (x >> 16)               XOR fold (high-bit entropy → low bits)
+      x = cast(x, uint16)             Truncate back to Z_{2^16}
   return x
 
 split / fold_in:
@@ -44,7 +45,11 @@ def tyche_embed(raw_data_16, block_size):
     matrix = jnp.where(r == c, matrix | jnp.uint16(1), matrix)
     return matrix
 
-# SplitMix64 constants for seed/perturbation expansion
+# Odd multiplier for ALU nonlinearity — bijection on Z_{2^32}
+# (from SplitMix64's finaliser; odd ⇒ invertible mod 2^32)
+_ODD_MULT = jnp.uint32(0x94D049BB)
+
+# SplitMix64 constants for seed expansion
 _SM64_ADD  = jnp.uint64(0x9E3779B97F4A7C15)
 _SM64_MIX1 = jnp.uint64(0xBF58476D1CE4E5B9)
 _SM64_MIX2 = jnp.uint64(0x94D049BB133111EB)
@@ -91,10 +96,14 @@ def _hash_block(counter_block: jnp.ndarray, weight_matrices: jnp.ndarray) -> jnp
     def round_fn(x, W_r):
         x_u32 = x.astype(jnp.uint32)
         
-        # MAC (Accumulation natively in 32-bit, adding 32-bit entropy from W_r)
+        # Tensor Core path: 16→32-bit MAC + 32-bit key addition
         acc_32 = jnp.matmul(x_u32, x_u32) + W_r
         
-        # ALU Bridge: Fold high bits into low bits to capture full cross-multiplication
+        # ALU path: odd-multiply bijection forces full carry cascade across all 32 bits,
+        # breaking the low-bit linearity of integer matmul
+        acc_32 = acc_32 * _ODD_MULT
+        
+        # XOR fold: bring carry-enriched high bits down into low bits
         alu_mixed = acc_32 ^ (acc_32 >> jnp.uint32(16))
         
         # Truncate back to uint16
@@ -129,18 +138,33 @@ def make_counter_blocks(key: jnp.ndarray, offset: int, num_blocks: int, block_si
 
     return jax.vmap(make_block)(block_indices)
 
-def _expand_scalar_to_matrix(value: jnp.ndarray, block_size: int) -> jnp.ndarray:
-    """Expands a uint64 scalar directly into a (B, B) uint32 perturbation matrix."""
-    B = block_size
-    n_u32 = B * B
-    n_u64 = (n_u32 + 1) // 2
+# -- Reduced 2-multiply bijective hash for perturbation expansion --------
+# Fast, GPU-friendly alternative to full SplitMix64 scan.
+# Two odd multiplies + XOR folds give strong avalanche for sequential IDs
+# while staying branch-free and trivially lowerable to Pallas / thread-ID use.
+_FAST_MUL1 = jnp.uint32(0xBF58476D)   # odd
+_FAST_MUL2 = jnp.uint32(0x94D049BB)   # odd
 
-    _, words_u64 = jax.lax.scan(
-        lambda s, _: _splitmix64_step(s),
-        value.astype(jnp.uint64), None, length=n_u64
-    )
-    flat_u32 = _u64_to_u32_array(words_u64, n_u32)
-    return flat_u32[:B * B].reshape(B, B)
+def _fast_mix_u32(x: jnp.ndarray) -> jnp.ndarray:
+    """2-multiply bijective hash: uint32 → uint32.  Branch-free, Pallas-ready."""
+    x = (x ^ (x >> jnp.uint32(16))) * _FAST_MUL1
+    x = (x ^ (x >> jnp.uint32(13))) * _FAST_MUL2
+    x = x ^ (x >> jnp.uint32(16))
+    return x
+
+def _expand_scalar_to_matrix(value: jnp.ndarray, block_size: int) -> jnp.ndarray:
+    """Expand a scalar (child index / fold-in data) into a (B, B) uint32 perturbation matrix.
+    
+    Uses a fast 2-multiply bijective hash seeded by value and element index.
+    Designed so that in a Pallas kernel the value can be the thread ID directly."""
+    B = block_size
+    n = B * B
+    # Mix value with element indices to produce n independent-looking uint32s
+    base = value.astype(jnp.uint32)
+    indices = jnp.arange(n, dtype=jnp.uint32)
+    # Combine base and index — golden-ratio offset avoids collisions for sequential values
+    raw = base + indices * jnp.uint32(0x9E3779B9)
+    return _fast_mix_u32(raw).reshape(B, B)
 
 def _apply_perturbation(weight_matrices: jnp.ndarray, perturbation: jnp.ndarray) -> jnp.ndarray:
     def perturb_round(W_r):
