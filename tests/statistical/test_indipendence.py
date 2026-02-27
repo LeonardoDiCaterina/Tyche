@@ -4,7 +4,6 @@ tests can still fail if its outputs are correlated.
 """
 
 import jax
-import jax.numpy as jnp
 import numpy as np
 import pytest
 from scipy import stats

@@ -51,7 +51,7 @@ def test_fold_in_sensitive_to_key():
     for i in range(len(results)):
         for j in range(i + 1, len(results)):
             assert not jnp.array_equal(results[i], results[j]), (
-                f"Different parent keys produced the same fold_in result"
+                "Different parent keys produced the same fold_in result"
             )
 
 

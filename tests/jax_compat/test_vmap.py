@@ -8,7 +8,6 @@ in ML training loops (per-sample randomness, ensemble models, etc.)
 
 import jax
 import jax.numpy as jnp
-import pytest
 from tyche import impl
 
 

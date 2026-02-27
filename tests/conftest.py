@@ -4,7 +4,6 @@ All tests interact with Tyche through these fixtures — swapping the
 implementation never requires changing any test file.
 """
 
-from xxlimited import Str
 import pytest
 import jax
 import jax.numpy as jnp

@@ -6,7 +6,6 @@ it breaks for virtually every real-world user.
 
 import jax
 import jax.numpy as jnp
-import pytest
 from tyche import impl
 
 
