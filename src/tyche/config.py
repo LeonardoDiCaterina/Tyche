@@ -24,7 +24,9 @@ from tyche.algorithm import (
 )
 
 class TycheConfig:
-    # Changed default num_rounds to 4 based on SAC tests
+    """
+    Configuration object for the Tyche PRNG.
+    """
     def __init__(self, block_size: int = 4, num_rounds: int = 4, backend:str = "jax"):
         
         if backend == "pallas":
@@ -68,27 +70,27 @@ class TycheConfig:
         )
 
     def _random_bits(self, key: jnp.ndarray, bit_width: int, shape: tuple) -> jnp.ndarray:
+        
+        """
+        Generate random bits by hashing counter blocks with key matrices.
+        This method calculates how many (B, B) blocks of output are needed to produce the requested number of bits,
+        generates the necessary counter blocks, and then hashes them in parallel using the backend's hash_parallel
+        method. Finally, it packs the resulting uint16 outputs into the requested bit width (32 or 64).
+        """
+        
         B, R = self.block_size, self.num_rounds
 
         total_out_elems = math.prod(shape)
         
-        # Calculate how many 16-bit elements we need
         uint16_per_elem = bit_width // 16
         total_uint16 = total_out_elems * uint16_per_elem
-
-        # Calculate blocks needed
         num_blocks = math.ceil(total_uint16 / (B * B))
 
         weight_matrices = _key_to_matrices(key, R, B)
         counter_blocks = make_counter_blocks(key, 0, num_blocks, B)
-        
-        # Hash outputs shape (num_blocks, B, B) of uint16
         hashed = self._hash_parallel(counter_blocks, weight_matrices)
 
-        # Flatten and truncate to exact number of uint16s needed
         flat_u16 = hashed.reshape(-1)[:total_uint16]
-
-        # Use JAX's zero-copy memory views to pack the 16-bit blocks into 32 or 64 bit outputs
         out_dtype = jnp.uint32 if bit_width == 32 else jnp.uint64
         packed = flat_u16.view(out_dtype)
 
