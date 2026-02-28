@@ -24,18 +24,19 @@ count_total = {total}
 count_half = {half}
 chunk = 100000
 out = sys.stdout.buffer
+keys = [child1, child2]
 written = 0
 while written < count_total:
-    for k in (child1, child2):
-        k, sub = jax.random.split(k)
+    for i in range(2):
+        keys[i], sub = jax.random.split(keys[i])
         cnt = min(chunk, count_half - (written // 2))
         buf = np.array(jax.random.bits(sub, shape=(cnt,), dtype=jnp.uint32), dtype=np.uint32)
         out.write(buf.tobytes()); out.flush()
         written += cnt
-""".format(total=1<<30, half=1<<29)
+""".format(total=1<<35, half=1<<34)
 
 stream_proc = subprocess.Popen([sys.executable, "-c", pycmd], stdout=subprocess.PIPE)
-pr = subprocess.Popen(["RNG_test", "stdin32", "-tlmax", "1GB"], stdin=stream_proc.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+pr = subprocess.Popen(["RNG_test", "stdin32", "-tlmax", "32GB"], stdin=stream_proc.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 stream_proc.stdout.close()
 out, err = pr.communicate()
 print(out.decode() + err.decode())

@@ -231,14 +231,24 @@ def derive_child_key(key: jnp.ndarray, value: jnp.ndarray, num_rounds: int, bloc
     
     weight_matrices = _key_to_matrices(key, num_rounds, block_size)
 
-    round_indices = jnp.arange(num_rounds, dtype=jnp.uint64)
+    round_indices = jnp.arange(num_rounds, dtype=jnp.uint32)
+    # Pre-hash the child value so that sequential indices (0,1,2,...)
+    # are spread across the full uint32 range *before* we mix in the
+    # round index.  Previously "value + r" was used, which meant
+    # child 0 / round 1 and child 1 / round 0 received the *same*
+    # scalar — producing identical perturbation matrices and
+    # catastrophic cross-stream correlations in PractRand.
+    hashed_value = _fast_mix_u32(value.astype(jnp.uint32))
+
     def perturb_round(W_r, r):
         """
         Perturb one round's weight matrix with a value-derived matrix.
-        The perturbation is derived from the value and round index,
-        ensuring unique perturbations across rounds and sibling keys.
+        The perturbation is derived from the pre-hashed value XOR'd with
+        a round-dependent salt, ensuring unique perturbations across
+        both rounds and sibling keys.
         """
-        P = _expand_scalar_to_matrix(value + r, block_size)
+        round_salt = r * jnp.uint32(0x9E3779B9)   # golden-ratio odd mult
+        P = _expand_scalar_to_matrix(hashed_value ^ round_salt, block_size)
         return jnp.matmul(W_r, W_r) + P
 
     new_matrices = jax.vmap(perturb_round)(weight_matrices, round_indices)
