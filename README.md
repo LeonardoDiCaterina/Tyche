@@ -40,7 +40,7 @@ where $P(i, r)$ is a round-dependent perturbation matrix obtained by hashing the
 
 $$h(x) = \text{xor-shift-multiply-xor-shift-multiply-xor-shift}(x)$$
 
-A fresh perturbation is computed for **each round** (e.g. by mixing the round index into $h$) so that sibling keys derived from the same parent differ unpredictably across rounds.  Earlier versions used a single shared $P(i)$ for all rounds, which created linear relationships between siblings.
+A fresh perturbation is computed for **each round** (e.g. by mixing the round index into $h$) so that sibling keys derived from the same parent differ unpredictably across rounds.
 
 
 ### Nonlinearity analysis
@@ -128,12 +128,13 @@ Run with `pytest tests/ -m "not crush"`:
 | `test_jit.py` | 7 | JIT compilation of `key`, `split`, `fold_in`, `random_bits`, `uniform`, `normal`; determinism under re-JIT |
 | `test_vmap.py` | 6 | `vmap` over `split`, `fold_in`, `normal`; distinct samples per key; `vmap` ∘ `jit` composition |
 
-### Statistical tests (27 passed)
+### Statistical tests (30 passed)
 
 | Module | Tests | What it covers |
 |---|---|---|
 | `test_avalanche.py` | 3 | Seed / fold-in / split avalanche — >30 % bit flips per input change |
 | `test_bits.py` | 6 | Bit balance, byte distribution, run-length check, MSB/LSB balance, seed diversity |
+| `test_adversarial.py` | 5 | Chosen-input edge cases: related-key XOR, degenerate seeds, sequential seeds |
 | `test_indipendence.py` | 6 | Serial & higher-lag autocorrelation, split/fold-in independence, runs test, 2-D uniformity |
 | `test_uniformity.py` | 11 | KS & χ² goodness-of-fit for `uniform`; mean/variance checks; cross-key uniformity; `normal` distribution test |
 
@@ -141,11 +142,24 @@ Run with `pytest tests/ -m "not crush"`:
 
 PractRand 0.95 is used as a black-box stream tester. The generator pipes raw `uint32` output from `jax.random.bits` (Tyche impl) into PractRand's `RNG_test stdin32`.
 
+#### Split-independence testing
+
+To verify the robustness of child key derivation, a comprehensive suite of PractRand-based tests interleaves streams from related and unrelated keys. These tests live in `tests/crush/test_split_independence.py` and verify three key scenarios:
+
+* two children of the same parent (siblings);
+* two children of different parents but identical fold-in index;
+* two children of different parents with different fold-in indices.
+
+All three configurations pass without anomalies, confirming that `jax.random.split` and `fold_in` produce genuinely independent streams at scale.
+
+#### Fold-advancement variants
+
+The test suite covers both split and fold-in key evolution modes. Tests exercise a second mode of the interleaved harness in which **all key evolution is done by `jax.random.fold_in`** instead of calling `split` on each iteration. This yields six crush tests: the three sibling scenarios, plus the same trio executed with per-block fold-in counters. This ensures that neither initial sibling derivation nor iterative folding introduces cross-stream correlations.
+
 | Level | Data size | Result | Command |
 |---|---|---|---|
-| **SmallCrush** | 128 MB | **PASS** — 156 tests, 0 anomalies | `pytest tests/crush/test_smallcrush.py -m crush` |
-| **Crush** | 1 GB | **PASS** — 0 anomalies | `pytest tests/crush/test_crush.py -m crush` |
-| **BigCrush** | 32 GB | Not yet run (hours-long) | `pytest tests/crush/test_bigcrush.py -m crush` |
+| **BigCrush** | 32 GB | **PASS** — 0 anomalies | `pytest tests/crush/test_bigcrush.py -m crush` |
+| **All tests** | 32 GB each | run both split‑independence and the other harnesses at full size | `pytest tests/crush/*.py -m crush` |
 
 > **Note:** PractRand tests require the `RNG_test` binary. On macOS ARM, the bundled source in `tests/crush/bridge/PractRand/` includes a POSIX `read()` fix for stdin binary mode. Compile with `make -C tests/crush/bridge`.
 
