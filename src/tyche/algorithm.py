@@ -182,6 +182,7 @@ def make_counter_blocks(key: jnp.ndarray, offset: int, num_blocks: int, block_si
 
     return jax.vmap(make_block)(block_indices)
 
+
 # -- Reduced 2-multiply bijective hash for perturbation expansion --------
 # Fast, GPU-friendly alternative to full SplitMix64 scan.
 # Two odd multiplies + XOR folds give strong avalanche for sequential IDs

@@ -58,39 +58,36 @@ def _fast_mix_u32(x: jnp.ndarray) -> jnp.ndarray:
     x = x ^ (x >> jnp.uint32(16))
     return x
 
-def make_tile(n: jnp.ndarray, key_mix: jnp.ndarray, T: int, embedding: str) -> jnp.ndarray:
-    """
-    Construct the X_0 initial INT8 state tile using different experimental embeddings.
-    """
-    n = n.astype(jnp.uint32)
-    key_mix = key_mix.astype(jnp.uint32)
+def make_tiles(key: jnp.ndarray, offset: int, num_tiles: int, tile_size: int, embedding: str) -> jnp.ndarray:
+    T = tile_size
+    key_mix = _mix_key_const(key).astype(jnp.uint32)
+    n = (jnp.arange(num_tiles, dtype=jnp.uint32) + jnp.uint32(offset)).reshape((num_tiles, 1, 1))
+    
     rows = jnp.arange(T, dtype=jnp.uint32)
     cols = jnp.arange(T, dtype=jnp.uint32)
     R, C = jnp.meshgrid(rows, cols, indexing='ij')
+    R = R.reshape((1, T, T))
+    C = C.reshape((1, T, T))
 
     M1 = jnp.uint32(2654435761)
     M2 = jnp.uint32(1234567891)
     M3 = jnp.uint32(987654321)
 
     if embedding == "hash":
-        # Default: Full diffusion from round 1
         raw = key_mix ^ (n * M1) ^ (R * M2) ^ (C * M3)
         mixed = _fast_mix_u32(raw)
         return mixed.astype(jnp.int8)
     
     elif embedding == "diagonal":
-        # Minimal: slow diffusion, tests matmul mixing capabilities
         mixed = _fast_mix_u32(key_mix ^ n)
         return jnp.where(R == C, mixed.astype(jnp.int8), jnp.int8(0))
         
     elif embedding == "row":
-        # Intermediate: rows differ, columns identical
         raw = key_mix ^ n ^ (R * M2)
         mixed = _fast_mix_u32(raw)
         return mixed.astype(jnp.int8)
         
     elif embedding == "rank1":
-        # Outer product structure
         v1 = _fast_mix_u32(key_mix ^ n ^ R)
         v2 = _fast_mix_u32(key_mix ^ n ^ C)
         return (v1 * v2).astype(jnp.int8)
@@ -98,20 +95,9 @@ def make_tile(n: jnp.ndarray, key_mix: jnp.ndarray, T: int, embedding: str) -> j
     else:
         raise ValueError(f"Unknown embedding mode: {embedding}")
 
-def make_tiles(key: jnp.ndarray, offset: int, num_tiles: int, tile_size: int, embedding: str) -> jnp.ndarray:
-    T = tile_size
-    key_mix = _mix_key_const(key)
-    tile_indices = jnp.arange(num_tiles, dtype=jnp.uint32) + jnp.uint32(offset)
-    
-    def _make_one(n):
-        return make_tile(n, key_mix, T, embedding)
-    
-    return jax.vmap(_make_one)(tile_indices)
-
-
 def _hash_tile(tile_int8: jnp.ndarray, weight_matrices: jnp.ndarray) -> jnp.ndarray:
     """
-    JAX Fallback loop for V2: INT8 -> INT32 -> INT8.
+    JAX Fallback loop for V2.1: INT8 -> INT32 -> INT8.
     """
     def round_fn(x, W_r):
         x_int32 = x.astype(jnp.int32)
@@ -146,9 +132,6 @@ def _expand_scalar_to_matrix(value: jnp.ndarray, tile_size: int) -> jnp.ndarray:
 
 def _apply_perturbation(weight_matrices: jnp.ndarray, perturbation: jnp.ndarray) -> jnp.ndarray:
     def perturb_round(W_r):
-        # Derive new keys via 32-bit quadratic map
-        # W_r is handled as uint32/int32; the matmul should be full precision 32-bit
-        # (JAX treats uint32 matmul as exactly that)
         x = jnp.matmul(W_r.astype(jnp.uint32), W_r.astype(jnp.uint32)) + perturbation.astype(jnp.uint32)
         return x
     return jax.vmap(perturb_round)(weight_matrices)

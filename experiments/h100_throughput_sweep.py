@@ -13,6 +13,9 @@ from tyche.config import TycheConfig
 # Import Tyche V2
 from tyche.v2.config import TycheV2Config
 
+# Import Tyche V2.1
+from tyche.v2_1.config import TycheV2_1Config
+
 def run_sweep(batch_sizes, num_warmups=3, num_iters=10):
     results = []
     
@@ -75,6 +78,33 @@ def run_sweep(batch_sizes, num_warmups=3, num_iters=10):
                         "generator": "Tyche V2", "tile_size": tile_size, "num_rounds": num_rounds, "batch_size": batch_size, "throughput_GBs": throughput_gbps
                     })
                     print(f"Tyche V2 (T={tile_size}, R={num_rounds}): {throughput_gbps:.2f} GB/s")
+                except Exception as e:
+                    print(f"Failed configuration T={tile_size}, R={num_rounds}: {e}")
+
+        # 4. Benchmark Tyche V2.1 configurations (vectorized)
+        for tile_size in [16, 32, 64]:
+            for num_rounds in [2, 4, 6, 8]:
+                cfg = TycheV2_1Config(tile_size=tile_size, num_rounds=num_rounds, backend="pallas")
+                impl = cfg.build()
+                key = jax.random.key(42, impl=impl)
+                
+                def gen_tyche_v2_1():
+                    return jax.random.bits(key, shape=(batch_size,), dtype=jnp.uint32)
+                f_tyche_v2_1 = jax.jit(gen_tyche_v2_1)
+                
+                # Warmup
+                try:
+                    for _ in range(num_warmups): f_tyche_v2_1().block_until_ready()
+                    
+                    t0 = time.perf_counter()
+                    for _ in range(num_iters): f_tyche_v2_1().block_until_ready()
+                    t1 = time.perf_counter()
+                    
+                    throughput_gbps = (batch_size * 4 * num_iters) / (t1 - t0) / 1e9
+                    results.append({
+                        "generator": "Tyche V2.1", "tile_size": tile_size, "num_rounds": num_rounds, "batch_size": batch_size, "throughput_GBs": throughput_gbps
+                    })
+                    print(f"Tyche V2.1 (T={tile_size}, R={num_rounds}): {throughput_gbps:.2f} GB/s")
                 except Exception as e:
                     print(f"Failed configuration T={tile_size}, R={num_rounds}: {e}")
 

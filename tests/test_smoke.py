@@ -42,3 +42,21 @@ def test_random_uniform_runs():
     samples = jax.random.uniform(key, shape=(100,))
     assert samples.shape == (100,)
     assert jnp.all((samples >= 0.0) & (samples < 1.0))
+
+
+def test_v2_smoke():
+    from tyche.v2.config import TycheV2Config
+    cfg = TycheV2Config(tile_size=16, num_rounds=2)
+    impl_v2 = cfg.build()
+    key = jax.random.key(42, impl=impl_v2)
+    samples = jax.random.uniform(key, shape=(100,))
+    assert samples.shape == (100,)
+
+
+def test_v2_1_smoke():
+    from tyche.v2_1.config import TycheV2_1Config
+    cfg = TycheV2_1Config(tile_size=16, num_rounds=2)
+    impl_v2_1 = cfg.build()
+    key = jax.random.key(42, impl=impl_v2_1)
+    samples = jax.random.uniform(key, shape=(100,))
+    assert samples.shape == (100,)
