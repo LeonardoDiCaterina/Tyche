@@ -22,7 +22,12 @@ class PallasBackendV2:
                 W_r = pl.load(weights_ref, (r, pl.dslice(T), pl.dslice(T)))
                 
                 # Tensor Core Path: int8 * int8 + int32 -> int32
-                acc = pl.dot(x, x) + W_r
+                # Hardware requires K to be 2*T for INT8. We pad with zeros.
+                z = jnp.zeros((T, T), dtype=jnp.int8)
+                x_lhs = jnp.concatenate([x, z], axis=1)  # (T, 2*T)
+                x_rhs = jnp.concatenate([x, z], axis=0)  # (2*T, T)
+                
+                acc = pl.dot(x_lhs, x_rhs) + W_r
                 
                 # ALU Path
                 # Cast acc to uint32 for bitwise ops, then ODD_MULT
