@@ -41,13 +41,12 @@ docker run --rm \
 ## Running the tests
 
 ```bash
-# Quick check (100MB, ~seconds)
-pytest tests/crush/test_smallcrush.py -v -m crush
-
-# Medium (1GB, ~minutes)  
-pytest tests/crush/test_crush.py -v -m crush
-
 # Full certification (32GB, ~hours)
+All of the harnesses now run at the 32 GB BigCrush scale; the two smaller
+files are retained for historical reasons but execute the same workload.
+
+pytest tests/crush/test_smallcrush.py -v -m crush
+pytest tests/crush/test_crush.py -v -m crush
 pytest tests/crush/test_bigcrush.py -v -m crush
 ```
 
