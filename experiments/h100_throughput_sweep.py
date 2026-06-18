@@ -49,7 +49,8 @@ def run_sweep(batch_size, num_warmups=3, num_iters=10):
     # 3. Benchmark Tyche V2 configurations
     for tile_size in [16, 32, 64]:
         for num_rounds in [2, 4, 6, 8]:
-            cfg = TycheV2Config(tile_size=tile_size, num_rounds=num_rounds, backend="jax")
+            # CRITICAL FIX: Use the 'pallas' backend instead of the slow 'jax' fallback
+            cfg = TycheV2Config(tile_size=tile_size, num_rounds=num_rounds, backend="pallas")
             impl = cfg.build()
             key = jax.random.key(42, impl=impl)
             
