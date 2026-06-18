@@ -1,7 +1,6 @@
 import jax.numpy as jnp
 import jax
 from jax.experimental import pallas as pl
-import jax.experimental.pallas.triton as plgpu  # GPU path
 
 
 class PallasBackend:

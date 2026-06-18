@@ -1,9 +1,6 @@
-# ── src/tyche/backend_jax.py ─────────────────────────────────────
-
 import jax
 from tyche import algorithm
 
-# use the current algorithm implementation; algorithm_old is deprecated
 _apply_perturbation = algorithm._apply_perturbation
 _hash_block = algorithm._hash_block
 make_counter_blocks = algorithm.make_counter_blocks
