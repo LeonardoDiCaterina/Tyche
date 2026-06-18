@@ -22,17 +22,13 @@ class PallasBackendV2:
                 W_r = pl.load(weights_ref, (r, pl.dslice(T), pl.dslice(T)))
                 
                 # Tensor Core Path: int8 * int8 + int32 -> int32
-                # JAX Pallas has a bug in its int8 dot lowering where it automatically 
-                # pads the LHS contracting dimension to 2*T but forgets to pad the RHS.
-                # We manually pad the RHS to match.
-                z = jnp.zeros((T, T), dtype=jnp.int8)
-                x_rhs = jnp.concatenate([x, z], axis=0)  # (2*T, T)
-                
-                acc = pl.dot(x, x_rhs) + W_r
-                
+                # Cast the int32 accumulator to uint32 BEFORE adding W_r (which is uint32)
+                # to prevent JAX from silently promoting the result to int64.
+                acc = pl.dot(x, x)
+                acc_u32 = acc.astype(jnp.uint32) + W_r
+
                 # ALU Path
-                # Cast acc to uint32 for bitwise ops, then ODD_MULT
-                acc_u32 = acc.view(jnp.uint32)
+                # Apply ODD_MULT to the uint32 accumulator
                 acc_u32 = acc_u32 * jnp.uint32(0x94D049BB)
                 
                 # XOR Fold
