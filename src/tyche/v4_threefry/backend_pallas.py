@@ -91,10 +91,10 @@ class PallasBackendV4_Threefry:
             out_shape=jax.ShapeDtypeStruct((N, T*T), dtype),
             grid=(N,),
             in_specs=[
-                pl.BlockSpec((T*T,), lambda i: (i,)),
-                pl.BlockSpec((T*T,), lambda i: (0,)),
+                pl.BlockSpec((1, T*T), lambda i: (i, 0)),
+                pl.BlockSpec((self.R, T*T), lambda i: (0, 0)),
             ],
-            out_specs=pl.BlockSpec((T*T,), lambda i: (i,)),
+            out_specs=pl.BlockSpec((1, T*T), lambda i: (i, 0)),
         )(tiles_flat, weights_flat)
         return out_flat.reshape((N, T, T))
 
