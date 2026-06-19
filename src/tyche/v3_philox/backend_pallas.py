@@ -55,15 +55,16 @@ class PallasBackendV3_Philox:
                 pl.store(out_ref, (i, pl.dslice(2 * chunk_size, chunk_size)), x2)
                 pl.store(out_ref, (i, pl.dslice(3 * chunk_size, chunk_size)), x3)
             else:
-                M0_val = 0xD2B74407B1CE6E93
-                M0_signed = M0_val - (1 << 64)
-                # By passing through int64 first, we force JAX to lower the constant as a signed integer,
-                # which fits in the pybind11 int64_t boundary for MLIR's IntegerAttr.get().
-                # astype(uint64) performs a free bitcast inside MLIR.
-                M0 = jnp.int64(M0_signed).astype(jnp.uint64)
-                M0_lo = jnp.int64(M0_val & 0xFFFFFFFF).astype(jnp.uint64)
-                M0_hi = jnp.int64(M0_val >> 32).astype(jnp.uint64)
-                MASK = jnp.int64(0xFFFFFFFF).astype(jnp.uint64)
+                # The multiplier M0 = 0xD2B74407B1CE6E93 exceeds INT64_MAX, which crashes
+                # JAX's MLIR lowering Pybind11 bindings when trying to create a uint64 constant.
+                # To bypass this, we declare it as a signed int64, and perform the 64-bit 
+                # multiplication in the signed domain (which is bitwise equivalent).
+                M0_signed = jnp.int64(-3262877569463914861)
+                
+                # The high/low components fit cleanly inside INT64_MAX so uint64 is safe.
+                M0_lo = jnp.uint64(0xB1CE6E93)
+                M0_hi = jnp.uint64(0xD2B74407)
+                MASK = jnp.uint64(0xFFFFFFFF)
                 
                 chunk_size = total_elements // 2
                 
@@ -73,7 +74,7 @@ class PallasBackendV3_Philox:
                 for r in range(self.R):
                     k0 = pl.load(weights_ref, (r, pl.dslice(0 * chunk_size, chunk_size)))
                     
-                    lo0 = x0 * M0
+                    lo0 = (x0.astype(jnp.int64) * M0_signed).astype(jnp.uint64)
                     a_lo = x0 & MASK
                     a_hi = x0 >> 32
                     
