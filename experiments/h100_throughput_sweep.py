@@ -108,6 +108,60 @@ def run_sweep(batch_sizes, num_warmups=3, num_iters=10):
                 except Exception as e:
                     print(f"Failed configuration T={tile_size}, R={num_rounds}: {e}")
 
+        # 5. Benchmark Tyche V3 Philox
+        from tyche.v3_philox.config import TycheV3_PhiloxConfig
+        for word_size in [32, 64]:
+            for num_rounds in [2, 4]:
+                cfg = TycheV3_PhiloxConfig(tile_size=4, num_rounds=num_rounds, word_size=word_size, backend="pallas")
+                impl = cfg.build()
+                key = jax.random.key(42, impl=impl)
+                
+                def gen_tyche_v3():
+                    return jax.random.bits(key, shape=(batch_size,), dtype=jnp.uint32)
+                f_tyche_v3 = jax.jit(gen_tyche_v3)
+                
+                try:
+                    for _ in range(num_warmups): f_tyche_v3().block_until_ready()
+                    t0 = time.perf_counter()
+                    for _ in range(num_iters): f_tyche_v3().block_until_ready()
+                    t1 = time.perf_counter()
+                    
+                    throughput_gbps = (batch_size * 4 * num_iters) / (t1 - t0) / 1e9
+                    name = f"Philox-{word_size}"
+                    results.append({
+                        "generator": name, "tile_size": 4, "num_rounds": num_rounds, "batch_size": batch_size, "throughput_GBs": throughput_gbps
+                    })
+                    print(f"{name} (T=4, R={num_rounds}): {throughput_gbps:.2f} GB/s")
+                except Exception as e:
+                    print(f"Failed configuration Philox-{word_size} T=4, R={num_rounds}: {e}")
+
+        # 6. Benchmark Tyche V4 Threefry
+        from tyche.v4_threefry.config import TycheV4_ThreefryConfig
+        for word_size in [32, 64]:
+            for num_rounds in [2, 4]:
+                cfg = TycheV4_ThreefryConfig(tile_size=4, num_rounds=num_rounds, word_size=word_size, backend="pallas")
+                impl = cfg.build()
+                key = jax.random.key(42, impl=impl)
+                
+                def gen_tyche_v4():
+                    return jax.random.bits(key, shape=(batch_size,), dtype=jnp.uint32)
+                f_tyche_v4 = jax.jit(gen_tyche_v4)
+                
+                try:
+                    for _ in range(num_warmups): f_tyche_v4().block_until_ready()
+                    t0 = time.perf_counter()
+                    for _ in range(num_iters): f_tyche_v4().block_until_ready()
+                    t1 = time.perf_counter()
+                    
+                    throughput_gbps = (batch_size * 4 * num_iters) / (t1 - t0) / 1e9
+                    name = f"Threefry-{word_size}"
+                    results.append({
+                        "generator": name, "tile_size": 4, "num_rounds": num_rounds, "batch_size": batch_size, "throughput_GBs": throughput_gbps
+                    })
+                    print(f"{name} (T=4, R={num_rounds}): {throughput_gbps:.2f} GB/s")
+                except Exception as e:
+                    print(f"Failed configuration Threefry-{word_size} T=4, R={num_rounds}: {e}")
+
     return results
 
 if __name__ == "__main__":
