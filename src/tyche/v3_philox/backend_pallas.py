@@ -56,12 +56,14 @@ class PallasBackendV3_Philox:
                 pl.store(out_ref, (i, pl.dslice(3 * chunk_size, chunk_size)), x3)
             else:
                 M0_val = 0xD2B74407B1CE6E93
-                # Use signed equivalent for M0 to avoid pybind11 int64_t overflow during MLIR lowering
                 M0_signed = M0_val - (1 << 64)
-                M0 = jnp.uint64(M0_signed)
-                M0_lo = jnp.uint64(M0_val & 0xFFFFFFFF)
-                M0_hi = jnp.uint64(M0_val >> 32)
-                MASK = jnp.uint64(0xFFFFFFFF)
+                # By passing through int64 first, we force JAX to lower the constant as a signed integer,
+                # which fits in the pybind11 int64_t boundary for MLIR's IntegerAttr.get().
+                # astype(uint64) performs a free bitcast inside MLIR.
+                M0 = jnp.int64(M0_signed).astype(jnp.uint64)
+                M0_lo = jnp.int64(M0_val & 0xFFFFFFFF).astype(jnp.uint64)
+                M0_hi = jnp.int64(M0_val >> 32).astype(jnp.uint64)
+                MASK = jnp.int64(0xFFFFFFFF).astype(jnp.uint64)
                 
                 chunk_size = total_elements // 2
                 
