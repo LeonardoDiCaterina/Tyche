@@ -82,6 +82,6 @@ class PallasBackendV4_Threefry:
             out_specs=pl.BlockSpec((1, T, T), lambda i: (i, 0, 0)),
         )(tiles_in, weight_matrices)
 
-    def make_tiles(self, key, offset, num_tiles, tile_size, embedding):
+    def make_tiles(self, key, offset, num_tiles, tile_size, embedding, word_size):
         from tyche.v3_philox.algorithm import make_tiles
-        return make_tiles(key, offset, num_tiles, tile_size, embedding, self.W)
+        return make_tiles(key, offset, num_tiles, tile_size, embedding, word_size)
