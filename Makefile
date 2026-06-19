@@ -9,6 +9,8 @@ run-h100-experiments:
 	python experiments/h100_throughput_sweep.py --output results/throughput_results.csv
 	@echo "2. Running Embedding Convergence Sweep..."
 	python experiments/embedding_convergence_sweep.py --output results/convergence_results.json
+	@echo "3. Plotting Results..."
+	python experiments/plot_throughput.py
 	@echo "Experiments completed successfully! Artifacts are in the results/ directory."
 
 clean:
