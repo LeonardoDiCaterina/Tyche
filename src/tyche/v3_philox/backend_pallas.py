@@ -14,28 +14,26 @@ class PallasBackendV3_Philox:
         W = self.W
         dtype = jnp.uint32 if W == 32 else jnp.uint64
 
+        tiles_flat = tiles_in.reshape((N, T*T))
+        weights_flat = weight_matrices.reshape((self.R, T*T))
+
         def kernel(tiles_ref, weights_ref, out_ref):
             i = pl.program_id(0)
-            x = pl.load(tiles_ref, (i, pl.dslice(T), pl.dslice(T)))
-            
-            # Flatten to 1D for Philox operations
             total_elements = T * T
-            x_flat = x.reshape(-1)
             
             if W == 32:
                 M0 = jnp.uint32(0xCD9E8D57)
                 M1 = jnp.uint32(0xD2511F53)
                 chunk_size = total_elements // 4
                 
+                x0 = pl.load(tiles_ref, (i, pl.dslice(0 * chunk_size, chunk_size)))
+                x1 = pl.load(tiles_ref, (i, pl.dslice(1 * chunk_size, chunk_size)))
+                x2 = pl.load(tiles_ref, (i, pl.dslice(2 * chunk_size, chunk_size)))
+                x3 = pl.load(tiles_ref, (i, pl.dslice(3 * chunk_size, chunk_size)))
+                
                 for r in range(self.R):
-                    W_r = pl.load(weights_ref, (r, pl.dslice(T), pl.dslice(T))).reshape(-1)
-                    k0 = W_r[0:chunk_size]
-                    k1 = W_r[chunk_size:2*chunk_size]
-                    
-                    x0 = x_flat[0:chunk_size]
-                    x1 = x_flat[chunk_size:2*chunk_size]
-                    x2 = x_flat[2*chunk_size:3*chunk_size]
-                    x3 = x_flat[3*chunk_size:4*chunk_size]
+                    k0 = pl.load(weights_ref, (r, pl.dslice(0 * chunk_size, chunk_size)))
+                    k1 = pl.load(weights_ref, (r, pl.dslice(1 * chunk_size, chunk_size)))
                     
                     p0 = x0.astype(jnp.uint64) * M0.astype(jnp.uint64)
                     hi0 = (p0 >> 32).astype(jnp.uint32)
@@ -50,20 +48,23 @@ class PallasBackendV3_Philox:
                     nx2 = hi0 ^ k1 ^ x1
                     nx3 = lo0
                     
-                    x_flat = jnp.concatenate([nx0, nx1, nx2, nx3])
+                    x0, x1, x2, x3 = nx0, nx1, nx2, nx3
+
+                pl.store(out_ref, (i, pl.dslice(0 * chunk_size, chunk_size)), x0)
+                pl.store(out_ref, (i, pl.dslice(1 * chunk_size, chunk_size)), x1)
+                pl.store(out_ref, (i, pl.dslice(2 * chunk_size, chunk_size)), x2)
+                pl.store(out_ref, (i, pl.dslice(3 * chunk_size, chunk_size)), x3)
             else:
                 M0 = jnp.uint64(0xD2B74407B1CE6E93)
                 chunk_size = total_elements // 2
                 
+                x0 = pl.load(tiles_ref, (i, pl.dslice(0 * chunk_size, chunk_size)))
+                x1 = pl.load(tiles_ref, (i, pl.dslice(1 * chunk_size, chunk_size)))
+                
                 for r in range(self.R):
-                    W_r = pl.load(weights_ref, (r, pl.dslice(T), pl.dslice(T))).reshape(-1)
-                    k0 = W_r[0:chunk_size]
-                    
-                    x0 = x_flat[0:chunk_size]
-                    x1 = x_flat[chunk_size:2*chunk_size]
+                    k0 = pl.load(weights_ref, (r, pl.dslice(0 * chunk_size, chunk_size)))
                     
                     lo0 = x0 * M0
-                    # emulate mulhi64
                     a_lo = (x0 & 0xFFFFFFFF).astype(jnp.uint64)
                     a_hi = (x0 >> 32).astype(jnp.uint64)
                     b_lo = (M0 & 0xFFFFFFFF).astype(jnp.uint64)
@@ -78,21 +79,22 @@ class PallasBackendV3_Philox:
                     nx0 = hi0 ^ k0 ^ x1
                     nx1 = lo0
                     
-                    x_flat = jnp.concatenate([nx0, nx1])
+                    x0, x1 = nx0, nx1
                     
-            x_out = x_flat.reshape((T, T))
-            pl.store(out_ref, (i, pl.dslice(T), pl.dslice(T)), x_out)
+                pl.store(out_ref, (i, pl.dslice(0 * chunk_size, chunk_size)), x0)
+                pl.store(out_ref, (i, pl.dslice(1 * chunk_size, chunk_size)), x1)
 
-        return pl.pallas_call(
+        out_flat = pl.pallas_call(
             kernel,
-            out_shape=jax.ShapeDtypeStruct((N, T, T), dtype),
+            out_shape=jax.ShapeDtypeStruct((N, T*T), dtype),
             grid=(N,),
             in_specs=[
-                pl.BlockSpec((1, T, T), lambda i: (i, 0, 0)),
-                pl.BlockSpec((self.R, T, T), lambda i: (0, 0, 0)),
+                pl.BlockSpec((T*T,), lambda i: (i,)),
+                pl.BlockSpec((T*T,), lambda i: (0,)),
             ],
-            out_specs=pl.BlockSpec((1, T, T), lambda i: (i, 0, 0)),
-        )(tiles_in, weight_matrices)
+            out_specs=pl.BlockSpec((T*T,), lambda i: (i,)),
+        )(tiles_flat, weights_flat)
+        return out_flat.reshape((N, T, T))
 
     def make_tiles(self, key, offset, num_tiles, tile_size, embedding, word_size):
         from tyche.v3_philox.algorithm import make_tiles
