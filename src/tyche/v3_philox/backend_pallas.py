@@ -56,7 +56,9 @@ class PallasBackendV3_Philox:
                 pl.store(out_ref, (i, pl.dslice(3 * chunk_size, chunk_size)), x3)
             else:
                 M0_val = 0xD2B74407B1CE6E93
-                M0 = jnp.uint64(M0_val)
+                # Use signed equivalent for M0 to avoid pybind11 int64_t overflow during MLIR lowering
+                M0_signed = M0_val - (1 << 64)
+                M0 = jnp.uint64(M0_signed)
                 M0_lo = jnp.uint64(M0_val & 0xFFFFFFFF)
                 M0_hi = jnp.uint64(M0_val >> 32)
                 MASK = jnp.uint64(0xFFFFFFFF)
