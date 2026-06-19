@@ -53,6 +53,17 @@ def main():
                 linestyle = "-"
                 marker = '^' if num_rounds == 2 else 'v'
                 plt.plot(v2_1_subset["batch_size"], v2_1_subset["throughput_GBs"], marker=marker, linestyle=linestyle, linewidth=2, label=label)
+
+    # Plot Philox and Threefry
+    for name_prefix in ["Philox-32", "Philox-64", "Threefry-32", "Threefry-64"]:
+        for num_rounds in [2, 4]:
+            subset = df[(df["generator"] == name_prefix) & (df["num_rounds"].astype(str) == str(num_rounds))]
+            if not subset.empty:
+                subset = subset.sort_values(by="batch_size")
+                label = f"{name_prefix} (R={num_rounds})"
+                linestyle = "-." if "Philox" in name_prefix else "-"
+                marker = 's' if "32" in name_prefix else 'd'
+                plt.plot(subset["batch_size"], subset["throughput_GBs"], marker=marker, linestyle=linestyle, linewidth=2, label=label)
                 
     plt.xscale("log")
     plt.xlabel("Batch Size (number of uint32 elements)", fontsize=11)
