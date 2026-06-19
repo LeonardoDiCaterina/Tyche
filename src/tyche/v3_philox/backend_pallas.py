@@ -55,7 +55,12 @@ class PallasBackendV3_Philox:
                 pl.store(out_ref, (i, pl.dslice(2 * chunk_size, chunk_size)), x2)
                 pl.store(out_ref, (i, pl.dslice(3 * chunk_size, chunk_size)), x3)
             else:
-                M0 = jnp.uint64(0xD2B74407B1CE6E93)
+                M0_val = 0xD2B74407B1CE6E93
+                M0 = jnp.uint64(M0_val)
+                M0_lo = jnp.uint64(M0_val & 0xFFFFFFFF)
+                M0_hi = jnp.uint64(M0_val >> 32)
+                MASK = jnp.uint64(0xFFFFFFFF)
+                
                 chunk_size = total_elements // 2
                 
                 x0 = pl.load(tiles_ref, (i, pl.dslice(0 * chunk_size, chunk_size)))
@@ -65,15 +70,15 @@ class PallasBackendV3_Philox:
                     k0 = pl.load(weights_ref, (r, pl.dslice(0 * chunk_size, chunk_size)))
                     
                     lo0 = x0 * M0
-                    a_lo = (x0 & 0xFFFFFFFF).astype(jnp.uint64)
-                    a_hi = (x0 >> 32).astype(jnp.uint64)
-                    b_lo = (M0 & 0xFFFFFFFF).astype(jnp.uint64)
-                    b_hi = (M0 >> 32).astype(jnp.uint64)
-                    lo_lo = a_lo * b_lo
-                    hi_lo = a_hi * b_lo
-                    lo_hi = a_lo * b_hi
-                    hi_hi = a_hi * b_hi
-                    cross = (lo_lo >> 32) + (hi_lo & 0xFFFFFFFF) + (lo_hi & 0xFFFFFFFF)
+                    a_lo = x0 & MASK
+                    a_hi = x0 >> 32
+                    
+                    lo_lo = a_lo * M0_lo
+                    hi_lo = a_hi * M0_lo
+                    lo_hi = a_lo * M0_hi
+                    hi_hi = a_hi * M0_hi
+                    
+                    cross = (lo_lo >> 32) + (hi_lo & MASK) + (lo_hi & MASK)
                     hi0 = hi_hi + (hi_lo >> 32) + (lo_hi >> 32) + (cross >> 32)
                     
                     nx0 = hi0 ^ k0 ^ x1
