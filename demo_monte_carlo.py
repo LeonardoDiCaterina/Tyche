@@ -6,7 +6,8 @@ import numpy as np
 
 # Import Tyche PRNGs
 from tyche.v5b_bijective.config import TycheV5bConfig
-from tyche.v2.config import TycheV1Config
+from tyche.config import TycheConfig
+from tyche import impl as impl_v1
 
 # ---------------------------------------------------------
 # 1. Pi Monte Carlo Estimation Kernel
@@ -35,8 +36,6 @@ def run_benchmark(total_points, chunk_size):
     # 1. Benchmark Tyche V1 (Baseline Scalar)
     print("\n[1] Benchmarking Tyche V1 (Scalar Baseline)...")
     try:
-        cfg_v1 = TycheV1Config(tile_size=4, num_rounds=4, backend="cuda")
-        impl_v1 = cfg_v1.build()
         key_v1 = jax.random.key(42, impl=impl_v1)
         
         # Warmup
