@@ -33,6 +33,9 @@ class TycheConfig:
         if backend == "pallas":
             from tyche.backend_pallas import PallasBackend
             self._backend = PallasBackend(num_rounds, tile_size)
+        elif backend == "cuda":
+            from tyche.backend_cuda import CudaBackend
+            self._backend = CudaBackend(num_rounds, tile_size)
         else:
             from tyche.backend_jax import JaxBackend
             self._backend = JaxBackend(num_rounds, tile_size)
