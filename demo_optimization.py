@@ -5,7 +5,7 @@ import jax.numpy as jnp
 from functools import partial
 
 # Import Tyche V5.b Bijective
-from tyche.v5b_bijective.config import TycheV5bHybridConfig
+from tyche.v5b_bijective.config import TycheV5bConfig
 
 # ---------------------------------------------------------
 # 1. Define the Objective Function (Rastrigin)
@@ -85,7 +85,7 @@ def run_demo(num_particles=1_000_000, num_steps=100, dim=10):
     # --- Benchmark Tyche V5.b ---
     print("\n[2] Benchmarking Tyche V5.b (Bijective)...")
     try:
-        cfg = TycheV5bHybridConfig(tile_size=16, num_rounds=1, backend="cuda")
+        cfg = TycheV5bConfig(tile_size=16, num_rounds=1, backend="cuda")
         impl = cfg.build()
         key_tyche = jax.random.key(42, impl=impl)
         
