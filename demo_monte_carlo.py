@@ -6,8 +6,6 @@ import numpy as np
 
 # Import Tyche PRNGs
 from tyche.v5b_bijective.config import TycheV5bConfig
-from tyche.config import TycheConfig
-from tyche import impl as impl_v1
 
 # ---------------------------------------------------------
 # 1. Pi Monte Carlo Estimation Kernel
@@ -33,29 +31,29 @@ def run_benchmark(total_points, chunk_size):
     print(f"Total Points: {total_points:,} | Chunks: {num_chunks} of {chunk_size:,}")
     print("="*70)
     
-    # 1. Benchmark Tyche V1 (Baseline Scalar)
-    print("\n[1] Benchmarking Tyche V1 (Scalar Baseline)...")
+    # 1. Benchmark JAX Default (Threefry)
+    print("\n[1] Benchmarking JAX Default (Threefry)...")
     try:
-        key_v1 = jax.random.key(42, impl=impl_v1)
+        key_threefry = jax.random.PRNGKey(42)
         
         # Warmup
-        monte_carlo_pi_step(key_v1, chunk_size).block_until_ready()
+        monte_carlo_pi_step(key_threefry, chunk_size).block_until_ready()
         
         t0 = time.perf_counter()
         total_inside = 0
-        current_key = key_v1
+        current_key = key_threefry
         for _ in range(num_chunks):
             current_key, subkey = jax.random.split(current_key)
             total_inside += monte_carlo_pi_step(subkey, chunk_size).block_until_ready()
         t1 = time.perf_counter()
         
         pi_estimate = 4.0 * (total_inside / total_points)
-        time_v1 = t1 - t0
+        time_threefry = t1 - t0
         print(f"    Pi Estimate: {pi_estimate:.6f}")
-        print(f"    Time taken:  {time_v1:.4f} seconds")
+        print(f"    Time taken:  {time_threefry:.4f} seconds")
     except Exception as e:
         print(f"    Failed: {e}")
-        time_v1 = float('inf')
+        time_threefry = float('inf')
 
     # 2. Benchmark Tyche V5.b (Tensor Core Bijective)
     print("\n[2] Benchmarking Tyche V5.b (Tensor Core Bijective)...")
@@ -81,7 +79,8 @@ def run_benchmark(total_points, chunk_size):
         print(f"    Time taken:  {time_v5b:.4f} seconds")
         
         print("\n" + "="*70)
-        print(f"RESULT: Tyche V5.b is {time_v1 / time_v5b:.2f}x faster than our initial Tyche V1!")
+        speedup = time_threefry / time_v5b
+        print(f"RESULT: Tyche V5.b is {speedup:.2f}x faster than JAX Native Threefry!")
         print("="*70)
     except Exception as e:
         print(f"    Failed: {e}")
