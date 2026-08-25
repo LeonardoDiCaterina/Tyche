@@ -10,7 +10,6 @@ import sys
 import os
 
 # Suppress JAX output before import — prevents text from corrupting binary stream
-os.environ["JAX_PLATFORMS"] = "cpu"
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 
 import numpy as np
@@ -31,8 +30,16 @@ class TycheStream:
     Manages key splitting internally so the stream never repeats a key.
     """
 
-    def __init__(self, seed: int = 42, chunk_size: int = 100_000):
+    def __init__(self, seed: int = 42, chunk_size: int = 100_000, generator: str = "v1"):
         self.chunk_size = chunk_size
+        
+        if generator == "v5":
+            from tyche.v5_hybrid.config import TycheV5Config
+            impl = TycheV5Config(tile_size=16, num_rounds=1, backend="cuda").build()
+        else:
+            from tyche import impl
+            os.environ["JAX_PLATFORMS"] = "cpu" # Default back to CPU for older versions if needed
+            
         self._key = jax.random.key(seed, impl=impl)
 
     def write_binary(self, n: int, file=None):
@@ -56,7 +63,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Stream Tyche uint32s to stdout")
     parser.add_argument("--n", type=int, default=25_000_000)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--generator", type=str, default="v1")
     args = parser.parse_args()
 
-    stream = TycheStream(seed=args.seed)
+    stream = TycheStream(seed=args.seed, generator=args.generator)
     stream.write_binary(args.n)

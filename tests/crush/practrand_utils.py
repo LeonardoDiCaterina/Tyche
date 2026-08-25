@@ -19,7 +19,7 @@ def _require_practrand():
         pytest.skip("RNG_test not on PATH. See tests/crush/README.md for setup.")
 
 
-def _run_practrand(n_uint32: int, tlmax: str = "128MB") -> str:
+def _run_practrand(n_uint32: int, tlmax: str = "128MB", generator: str = "v1") -> str:
     """Generate Tyche stream and feed it to PractRand.
 
     Pipes the stream process stdout directly into PractRand stdin.
@@ -29,7 +29,7 @@ def _run_practrand(n_uint32: int, tlmax: str = "128MB") -> str:
     _require_practrand()
 
     stream_proc = subprocess.Popen(
-        [sys.executable, str(STREAM), "--n", str(n_uint32)],
+        [sys.executable, str(STREAM), "--n", str(n_uint32), "--generator", generator],
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
     )
