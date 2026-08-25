@@ -19,14 +19,14 @@ except ImportError as e:
     import warnings
     warnings.warn(f"Could not import tyche_csrc: {e}")
 
-# ----------------- Tyche V5 Hash Primitive -----------------
+# ----------------- Tyche V5b Hash Primitive -----------------
 tyche_v5b_hash_p = core_ext.Primitive("tyche_v5b_hash")
 tyche_v5b_hash_p.multiple_results = False
 tyche_v5b_hash_p.def_impl(lambda key, weight_matrices, key_mix, **kwargs: xla.apply_primitive(tyche_v5b_hash_p, key, weight_matrices, key_mix, **kwargs))
 
 @tyche_v5b_hash_p.def_abstract_eval
 def tyche_v5b_hash_abstract_eval(key, weight_matrices, key_mix, *, offset, num_tiles, T, R, embedding_type):
-    # V5 returns uint32 instead of int8!
+    # V5b returns uint32 instead of int8!
     return jax_core.ShapedArray((num_tiles, T, T), jnp.uint32)
 
 def tyche_v5b_hash_lowering(ctx, key, weight_matrices, key_mix, *, offset, num_tiles, T, R, embedding_type):
@@ -47,8 +47,8 @@ def tyche_v5b_hash_lowering(ctx, key, weight_matrices, key_mix, *, offset, num_t
 
 mlir.register_lowering(tyche_v5b_hash_p, tyche_v5b_hash_lowering, platform="gpu")
 
-# ----------------- CudaBackendV5 -----------------
-class CudaBackendV5:
+# ----------------- CudaBackendV5b -----------------
+class CudaBackendV5b:
     def __init__(self, num_rounds: int, tile_size: int):
         self.R = num_rounds
         self.T = tile_size
