@@ -73,12 +73,12 @@ def pallas_threefry_2x32(key, N):
 def benchmark(name, func, N, num_warmups=5, num_steps=20):
     # Warmup
     for _ in range(num_warmups):
-        res = func()
+        res = func(key_data)
         res.block_until_ready()
     
     t0 = time.perf_counter()
     for _ in range(num_steps):
-        res = func()
+        res = func(key_data)
         res.block_until_ready()
     t1 = time.perf_counter()
     

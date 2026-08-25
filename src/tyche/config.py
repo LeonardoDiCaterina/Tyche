@@ -12,7 +12,10 @@ import math
 import jax
 import jax.numpy as jnp
 jax.config.update("jax_enable_x64", True)  
-from jax._src.random.prng import PRNGImpl
+try:
+    from jax._src.random.prng import PRNGImpl
+except ImportError:
+    from jax._src.prng import PRNGImpl
 
 from tyche.algorithm import (
     key_size_uint32,

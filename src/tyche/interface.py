@@ -8,7 +8,10 @@ over GL_4(Z_256).
 import jax
 jax.config.update("jax_enable_x64", True)
 
-from jax._src.random import prng as jax_prng
+try:
+    from jax._src.random import prng as jax_prng
+except ImportError:
+    from jax._src import prng as jax_prng
 from tyche.config import TycheConfig
 
 _default_config = TycheConfig(tile_size=16, num_rounds=4)
