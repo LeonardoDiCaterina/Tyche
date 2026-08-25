@@ -12,8 +12,7 @@ class PallasBackendV2_1:
         T = self.T
 
         def kernel(tiles_ref, weights_ref, out_ref):
-            i = pl.program_id(0)
-            x = pl.load(tiles_ref, (i, pl.dslice(T), pl.dslice(T)))
+            x = pl.load(tiles_ref, (0, pl.dslice(T), pl.dslice(T)))
             
             for r in range(self.R):
                 W_r = pl.load(weights_ref, (r, pl.dslice(T), pl.dslice(T)))
@@ -24,7 +23,7 @@ class PallasBackendV2_1:
                 folded = acc_u32 ^ (acc_u32 >> 16)
                 x = folded.astype(jnp.int8)
                 
-            pl.store(out_ref, (i, pl.dslice(T), pl.dslice(T)), x)
+            pl.store(out_ref, (0, pl.dslice(T), pl.dslice(T)), x)
 
         return pl.pallas_call(
             kernel,
@@ -41,11 +40,10 @@ class PallasBackendV2_1:
         R, T = self.R, self.T
 
         def kernel(w_ref, p_ref, out_ref):
-            r = pl.program_id(0)
-            W = pl.load(w_ref, (r, pl.dslice(T), pl.dslice(T)))
+            W = pl.load(w_ref, (0, pl.dslice(T), pl.dslice(T)))
             P = p_ref[...]
             out = pl.dot(W, W) + P
-            pl.store(out_ref, (r, pl.dslice(T), pl.dslice(T)), out)
+            pl.store(out_ref, (0, pl.dslice(T), pl.dslice(T)), out)
 
         return pl.pallas_call(
             kernel,
