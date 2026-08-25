@@ -24,7 +24,7 @@ def tyche_dummy_abstract_eval(*, size):
 
 def tyche_dummy_lowering(ctx, *, size):
     opaque = struct.pack("i", size)
-    out_type = mlir.ir.RankedTensorType.get([size], mlir.ir.IntegerType.get_signless(32))
+    out_type = mlir.ir.RankedTensorType.get([size], mlir.ir.IntegerType.get_unsigned(32))
     return mlir.custom_call(
         "tyche_dummy",
         result_types=[out_type],
