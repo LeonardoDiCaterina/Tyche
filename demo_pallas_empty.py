@@ -30,7 +30,7 @@ def run_empty_pallas(num_tiles=1000, tile_size=16):
         out_shape=jax.ShapeDtypeStruct((num_tiles, tile_size, tile_size), jnp.uint32),
         grid=(num_tiles,),
         in_specs=[
-            pl.BlockSpec((), lambda i: ()),                     # key_mix is a scalar-like array for the whole grid
+            pl.BlockSpec((1,), lambda i: (0,)),                 # key_mix has shape (1,)
             pl.BlockSpec((1, tile_size), lambda i: (0, 0)),     # weights are shared across all blocks
         ],
         out_specs=pl.BlockSpec((tile_size, tile_size), lambda i: (i, 0, 0)), # Each block outputs a tile_size x tile_size tile
