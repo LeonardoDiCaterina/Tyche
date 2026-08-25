@@ -40,7 +40,7 @@ def pallas_pi_kernel(key_mix_ref, weights_ref, out_ref):
     hits = (x**2 + y**2) <= 1.0
     out_ref[0] = jnp.sum(hits, dtype=jnp.uint32)
 
-@jax.jit
+@jax.jit(static_argnums=(1,))
 def jax_native_pi(key, num_points):
     k1, k2 = jax.random.split(key)
     x = jax.random.uniform(k1, shape=(num_points,))
@@ -77,7 +77,7 @@ def pallas_integral_kernel(key_mix_ref, weights_ref, out_ref):
     
     out_ref[0] = jnp.sum(f1) + jnp.sum(f2)
 
-@jax.jit
+@jax.jit(static_argnums=(1,))
 def jax_native_integral(key, num_points):
     x = jax.random.uniform(key, shape=(num_points,))
     f = (x**3) - 2.0*(x**2) + x
@@ -118,7 +118,7 @@ def pallas_sphere_kernel(key_mix_ref, weights_ref, out_ref):
     hits = (x**2 + y**2 + z**2) <= 1.0
     out_ref[0] = jnp.sum(hits, dtype=jnp.uint32)
 
-@jax.jit
+@jax.jit(static_argnums=(1,))
 def jax_native_sphere(key, num_points):
     k1, k2, k3 = jax.random.split(key, 3)
     x = jax.random.uniform(k1, shape=(num_points,))
