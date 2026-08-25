@@ -13,7 +13,7 @@ valid ranges and shapes as Threefry.
 import jax
 import jax.numpy as jnp
 import pytest
-from jax._src import prng as jax_prng
+from jax._src.random import prng as jax_prng
 from tyche import impl as tyche_impl
 
 threefry_impl = jax_prng.threefry_prng_impl

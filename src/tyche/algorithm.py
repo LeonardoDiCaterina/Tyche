@@ -29,28 +29,7 @@ import jax
 jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 
-def tyche_embed(raw_data_16, block_size):
-    """
-    Embed raw 16-bit data into a guaranteed invertible GL_B(Z_65536) matrix.
 
-    We apply the odd/even masks in-place; this keeps all 16 input bits
-    except the constrained LSBs and avoids throwing away entropy.
-    
-    Guarantees invertibility mod 2^k by construction:
-    - Diagonal entries forced ODD (set LSB) → units in Z_65536
-    - Upper triangle entries forced EVEN (clear LSB)
-    - Lower triangle entries left unchanged
-    
-    This triangular map with odd diagonal is invertible by a standard
-    lifting argument over Z_{2^k}.
-    """
-    B = block_size
-    matrix = raw_data_16[:B * B].reshape((B, B)).astype(jnp.uint16)
-
-    r, c = jnp.indices((B, B))
-    matrix = jnp.where(r < c, matrix & jnp.uint16(0xFFFE), matrix)
-    matrix = jnp.where(r == c, matrix | jnp.uint16(1), matrix)
-    return matrix
 
 # Odd multiplier for ALU nonlinearity — bijection on Z_{2^32}
 # (from SplitMix64's finaliser; odd -> invertible mod 2^32)
@@ -103,37 +82,29 @@ def expand_seed_to_key(seed, num_rounds: int, block_size: int) -> jnp.ndarray:
     )
     return _u64_to_u32_array(words_u64, n_u32)
 
-def _hash_block(counter_block: jnp.ndarray, weight_matrices: jnp.ndarray) -> jnp.ndarray:
+def _hash_tile(tile: jnp.ndarray, weight_matrices: jnp.ndarray) -> jnp.ndarray:
     """
     Simulated Tensor Core FMA rounds + ALU Fold.
-    16-bit input -> 32-bit MAC -> 32-bit uint32 weights -> ALU Fold -> 16-bit output.
+    int8 input -> 32-bit MAC -> 32-bit int32 weights -> ALU Fold -> int8 output.
     """
+    weight_matrices_i32 = weight_matrices.astype(jnp.int32)
     def round_fn(x, W_r):
-        """
-        In each round we compute x² + W_r with 32-bit accumulation,
-        then apply an odd multiply bijection to break low-bit linearity,
-        followed by an XOR fold to mix high-bit entropy down.
+        x_32 = x.astype(jnp.int32)
+        acc_32 = jnp.matmul(x_32, x_32) + W_r
         
-        The path is 
-        16→32-bit MAC + 32-bit key addition
-        → 32-bit odd multiply bijection
-        → 32-bit XOR fold
-        → 16-bit truncation
-        """
-        x_u32 = x.astype(jnp.uint32)
-        acc_32 = jnp.matmul(x_u32, x_u32) + W_r
-        acc_32 = acc_32 * _ODD_MULT        
-        alu_mixed = acc_32 ^ (acc_32 >> jnp.uint32(16))
+        acc_u32 = acc_32.view(jnp.uint32)
+        acc_u32 = acc_u32 * _ODD_MULT        
+        alu_mixed = acc_u32 ^ (acc_u32 >> jnp.uint32(16))
         
-        return alu_mixed.astype(jnp.uint16), None
+        return alu_mixed.astype(jnp.int8), None
 
-    x, _ = jax.lax.scan(round_fn, counter_block, weight_matrices)
+    x, _ = jax.lax.scan(round_fn, tile, weight_matrices_i32)
     return x
 
 def make_hash_parallel(num_rounds: int):
     @jax.jit
-    def hash_parallel(counter_blocks: jnp.ndarray, weight_matrices: jnp.ndarray) -> jnp.ndarray:
-        return jax.vmap(_hash_block, in_axes=(0, None))(counter_blocks, weight_matrices)
+    def hash_parallel(tiles: jnp.ndarray, weight_matrices: jnp.ndarray) -> jnp.ndarray:
+        return jax.vmap(_hash_tile, in_axes=(0, None))(tiles, weight_matrices)
     return hash_parallel
 
 def _mix_key_const(key: jnp.ndarray) -> jnp.uint32: # type: ignore
@@ -152,35 +123,7 @@ def _mix_key_const(key: jnp.ndarray) -> jnp.uint32: # type: ignore
     return folded * jnp.uint32(2654435761)
 
 
-def make_counter_blocks(key: jnp.ndarray, offset: int, num_blocks: int, block_size: int) -> jnp.ndarray:
-    B = block_size
-    key_mix = _mix_key_const(key)
-    block_indices = jnp.arange(num_blocks, dtype=jnp.uint32) + jnp.uint32(offset)
 
-    def make_block(idx):
-        """
-        Generate one (B, B) uint16 counter block from key_mix and block index.
-         - We combine key_mix and block index with element indices to get a unique uint32 for each element
-         - Then we apply a bijective hash to get well-distributed uint32 values
-         - Finally we embed to GL_B(Z_65536) with the same odd/even masking as the key embedding,
-            ensuring invertibility and good diffusion.  
-        
-        This design ensures that each block is uniquely determined by the key and block index,
-        and that similar keys or indices produce very different counter blocks.
-        """
-    
-        rows = jnp.arange(B, dtype=jnp.uint32)
-        cols = jnp.arange(B, dtype=jnp.uint32)
-        R, C = jnp.meshgrid(rows, cols, indexing='ij')
-        v = key_mix ^ (idx  * jnp.uint32(2654435761))
-        v = v        ^ (R   * jnp.uint32(1234567891))
-        v = v        ^ (C   * jnp.uint32(987654321))
-        v = (v * jnp.uint32(1103515245) + jnp.uint32(12345)) ^ (v >> jnp.uint32(16))
-        
-        raw_16 = v.astype(jnp.uint16).reshape(-1)
-        return tyche_embed(raw_16, B)
-
-    return jax.vmap(make_block)(block_indices)
 
 
 # -- Reduced 2-multiply bijective hash for perturbation expansion --------
@@ -196,6 +139,33 @@ def _fast_mix_u32(x: jnp.ndarray) -> jnp.ndarray:
     x = (x ^ (x >> jnp.uint32(13))) * _FAST_MUL2
     x = x ^ (x >> jnp.uint32(16))
     return x
+
+def make_tile(key: jnp.ndarray, offset: int, num_tiles: int, tile_size: int, embedding: str = "hash") -> jnp.ndarray:
+    T = tile_size
+    key_mix = _mix_key_const(key)
+    tile_indices = jnp.arange(num_tiles, dtype=jnp.uint32) + jnp.uint32(offset)
+
+    def make_single_tile(idx):
+        rows, cols = jnp.meshgrid(jnp.arange(T, dtype=jnp.uint32), jnp.arange(T, dtype=jnp.uint32), indexing='ij')
+        
+        if embedding == "diagonal":
+            v = jnp.where(rows == cols, _fast_mix_u32(key_mix ^ idx), jnp.uint32(0))
+        elif embedding == "row":
+            v = _fast_mix_u32(key_mix ^ idx ^ (rows * jnp.uint32(1234567891)))
+        elif embedding == "rank1":
+            v1 = _fast_mix_u32(key_mix ^ idx ^ rows)
+            v2 = _fast_mix_u32(key_mix ^ idx ^ cols)
+            v = v1 * v2
+        else:
+            # Fallback to hash
+            v = key_mix ^ (idx * jnp.uint32(2654435761))
+            v = v ^ (rows * jnp.uint32(1234567891))
+            v = v ^ (cols * jnp.uint32(987654321))
+            v = _fast_mix_u32(v)
+            
+        return v.astype(jnp.int8)
+
+    return jax.vmap(make_single_tile)(tile_indices)
 
 def _expand_scalar_to_matrix(value: jnp.ndarray, block_size: int) -> jnp.ndarray:
     """Expand a scalar (child index / fold-in data) into a (B, B) uint32 perturbation matrix.

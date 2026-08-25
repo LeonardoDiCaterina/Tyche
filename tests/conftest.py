@@ -7,7 +7,7 @@ implementation never requires changing any test file.
 import pytest
 import jax
 import jax.numpy as jnp
-from jax._src import prng as jax_prng
+from jax._src.random import prng as jax_prng
 jax.config.update("jax_enable_x64", True)  # required for uint64 arithmetic
 
 from tyche import impl as tyche_impl
