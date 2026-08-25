@@ -382,7 +382,7 @@ __global__ void tyche_b1_pi_kernel(unsigned long long* out_hits, unsigned long l
     wmma::load_matrix_sync(b_frag, my_smem_B, 128);
     
     // Binary Tensor Core execution: C = POPC(A XOR B)
-    wmma::bmma_sync(acc_frag, a_frag, b_frag, acc_frag, wmma::bmmaBitOpXOR, wmma::bmmaAccumulateOpPOPC);
+    wmma::bmma_sync(acc_frag, a_frag, b_frag, acc_frag, wmma::experimental::bmmaBitOpXOR, wmma::experimental::bmmaAccumulateOpPOPC);
     
     // Extract 8-bit pieces directly from int32 accumulator registers
     unsigned int hits = 0;
