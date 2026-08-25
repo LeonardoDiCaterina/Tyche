@@ -21,9 +21,9 @@ void tyche_v1_hash(cudaStream_t stream, void** buffers, const char* opaque, size
     if (opaque_len != sizeof(TycheV1ConfigOpaque)) return;
     const TycheV1ConfigOpaque* config = reinterpret_cast<const TycheV1ConfigOpaque*>(opaque);
     
-    int8_t* out = reinterpret_cast<int8_t*>(buffers[0]);
-    const uint32_t* key = reinterpret_cast<const uint32_t*>(buffers[1]);
-    const uint32_t* weight_matrices = reinterpret_cast<const uint32_t*>(buffers[2]);
+    const uint32_t* key = reinterpret_cast<const uint32_t*>(buffers[0]);
+    const uint32_t* weight_matrices = reinterpret_cast<const uint32_t*>(buffers[1]);
+    int8_t* out = reinterpret_cast<int8_t*>(buffers[2]);
     
     tyche_v1_kernel_launch(
         stream, out, key, weight_matrices,
