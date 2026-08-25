@@ -11,7 +11,7 @@ from tyche.v5b_bijective.config import TycheV5bConfig
 # 1. Pi Monte Carlo Estimation Kernel
 # ---------------------------------------------------------
 # We generate N points (x, y) in [0, 1] and count how many fall inside the unit circle.
-@jax.jit
+@jax.jit(static_argnums=(1,))
 def monte_carlo_pi_step(key, points_per_step):
     # We need 2 * points_per_step random floats
     key_x, key_y = jax.random.split(key)
