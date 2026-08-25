@@ -43,7 +43,7 @@ def tyche_v2_hash_lowering(ctx, key, weight_matrices, key_mix, *, offset, num_ti
         result_types=[out_type],
         operands=[key, weight_matrices, key_mix],
         backend_config=opaque,
-        api_version=1,
+        api_version=2,
     ).results
 
 mlir.register_lowering(tyche_v2_hash_p, tyche_v2_hash_lowering, platform="gpu")

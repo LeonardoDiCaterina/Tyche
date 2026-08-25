@@ -16,7 +16,7 @@ struct TycheV1ConfigOpaque {
     int embedding_type;
 };
 
-void tyche_v1_hash(cudaStream_t stream, void** buffers, const char* opaque, size_t opaque_len) {
+void tyche_v1_hash(cudaStream_t stream, void** buffers, const char* opaque, size_t opaque_len, void* status) {
     if (opaque_len != sizeof(TycheV1ConfigOpaque)) return;
     const TycheV1ConfigOpaque* config = reinterpret_cast<const TycheV1ConfigOpaque*>(opaque);
     
@@ -27,11 +27,11 @@ void tyche_v1_hash(cudaStream_t stream, void** buffers, const char* opaque, size
     
     tyche_v1_kernel_launch(
         stream, out, key, weight_matrices,
-        config->offset, config->num_tiles, config->T, config->R, config->embedding_type, *key_mix_ptr
+        config->offset, config->num_tiles, config->T, config->R, config->embedding_type, key_mix_ptr
     );
 }
 
-void tyche_v2_hash(cudaStream_t stream, void** buffers, const char* opaque, size_t opaque_len) {
+void tyche_v2_hash(cudaStream_t stream, void** buffers, const char* opaque, size_t opaque_len, void* status) {
     if (opaque_len != sizeof(TycheV1ConfigOpaque)) return;
     const TycheV1ConfigOpaque* config = reinterpret_cast<const TycheV1ConfigOpaque*>(opaque);
     
@@ -43,7 +43,7 @@ void tyche_v2_hash(cudaStream_t stream, void** buffers, const char* opaque, size
     
     tyche_v2_wmma_kernel_launch(
         stream, out, key, weight_matrices,
-        config->offset, config->num_tiles, config->T, config->R, config->embedding_type, *key_mix_ptr
+        config->offset, config->num_tiles, config->T, config->R, config->embedding_type, key_mix_ptr
     );
 }
 
