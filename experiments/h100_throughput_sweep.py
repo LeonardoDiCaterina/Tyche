@@ -139,8 +139,8 @@ def run_sweep(batch_sizes, num_warmups=3, num_iters=10):
             print(f"Failed configuration Tyche V5 Hybrid: {e}")
 
         # 5.1 Benchmark Tyche V5b Bijective
-        from tyche.v5b_bijective.config import TycheV5bHybridConfig
-        cfg = TycheV5bHybridConfig(tile_size=16, num_rounds=1, backend="cuda")
+        from tyche.v5b_bijective.config import TycheV5bConfig
+        cfg = TycheV5bConfig(tile_size=16, num_rounds=1, backend="cuda")
         impl = cfg.build()
         key = jax.random.key(42, impl=impl)
         
