@@ -1,5 +1,6 @@
 #pragma once
 #include <cuda_runtime.h>
+#include <stdint.h>
 
 void dummy_fill_kernel(cudaStream_t stream, uint32_t* out, int size);
 
