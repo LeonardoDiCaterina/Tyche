@@ -130,9 +130,9 @@ __global__ void tyche_wmma_pi_kernel(unsigned long long* out_hits, unsigned long
     
     // Allocate shared memory for 16x16 int8 matrices A and B for this warp
     // 256 bytes per matrix * 2 = 512 bytes per warp
-    extern __shared__ int8_t smem_base[];
+    extern __shared__ char smem_base[];
     int warp_in_block = threadIdx.x / 32;
-    int8_t* my_smem_A = smem_base + warp_in_block * 512;
+    int8_t* my_smem_A = (int8_t*)(smem_base + warp_in_block * 512);
     int8_t* my_smem_B = my_smem_A + 256;
     
     // Fill with dummy data
@@ -200,16 +200,16 @@ __global__ void tyche_wmma_pi_kernel_full(unsigned long long* out_hits, unsigned
     unsigned long long points_per_warp = 256;
     if ((unsigned long long)warp_idx * points_per_warp >= num_points) return;
     
-    extern __shared__ uint32_t smem_base[];
+    extern __shared__ char smem_base[];
     int warp_in_block = threadIdx.x / 32;
     
     // Allocate 512 uint32s per warp (2048 bytes) for L and R
-    uint32_t* my_smem_vL = smem_base + warp_in_block * 512;
+    uint32_t* my_smem_vL = (uint32_t*)(smem_base + warp_in_block * 2048);
     uint32_t* my_smem_vR = my_smem_vL + 256;
     
     // Put int8 shared memory after ALL uint32 shared memory for the block
     int num_warps = blockDim.x / 32;
-    int8_t* my_smem_i8 = (int8_t*)(smem_base + num_warps * 512) + warp_in_block * 256;
+    int8_t* my_smem_i8 = (int8_t*)(smem_base + num_warps * 2048 + warp_in_block * 256);
     
     uint32_t tile_L_idx = warp_idx * 2;
     uint32_t tile_R_idx = warp_idx * 2 + 1;
