@@ -14,7 +14,8 @@ class JaxBackend:
     def hash_block(self, tile, weight_matrices):
         return _hash_tile(tile, weight_matrices)
 
-    def hash_parallel(self, tiles, weight_matrices):
+    def hash_parallel(self, key, offset, num_tiles, weight_matrices, embedding):
+        tiles = make_tile(key, offset, num_tiles, self.T, embedding)
         return jax.vmap(_hash_tile, in_axes=(0, None))(
             tiles, weight_matrices
         )

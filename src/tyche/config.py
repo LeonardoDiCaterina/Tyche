@@ -20,8 +20,6 @@ except ImportError:
 from tyche.algorithm import (
     key_size_uint32,
     expand_seed_to_key,
-    make_hash_parallel,
-    make_tile,
     _key_to_matrices,
     derive_child_key,
 )
@@ -47,7 +45,7 @@ class TycheConfig:
         self.tile_size = tile_size
         self.num_rounds = num_rounds
         self.embedding = embedding
-        self._hash_parallel = make_hash_parallel(num_rounds)
+        self._hash_parallel = self._backend.hash_parallel
 
     @property
     def key_shape(self):
@@ -84,8 +82,7 @@ class TycheConfig:
         num_tiles = math.ceil(total_bytes / (T * T))
 
         weight_matrices = _key_to_matrices(key, R, T)
-        tiles = make_tile(key, 0, num_tiles, T, self.embedding)
-        hashed = self._hash_parallel(tiles, weight_matrices)
+        hashed = self._hash_parallel(key, 0, num_tiles, weight_matrices, self.embedding)
 
         flat_i8 = hashed.reshape(-1)[:total_bytes]
         out_dtype = jnp.uint32 if bit_width == 32 else jnp.uint64
