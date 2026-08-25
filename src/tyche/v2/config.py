@@ -22,8 +22,11 @@ class TycheV2Config:
             self._make_tiles = self._backend.make_tiles
         else:
             self._backend = None
-            self._hash_parallel = make_hash_parallel(num_rounds)
+            _hash_p = make_hash_parallel(num_rounds)
             self._make_tiles = make_tiles
+            self._hash_parallel = lambda key, offset, num_tiles, w_mat, emb: _hash_p(
+                make_tiles(key, offset, num_tiles, tile_size, emb), w_mat
+            )
         
         if tile_size not in (16, 32, 64):
             raise ValueError(f"tile_size must be one of 16, 32, 64 — got {tile_size}")
