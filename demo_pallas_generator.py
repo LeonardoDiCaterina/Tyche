@@ -45,12 +45,11 @@ def pallas_v5b_kernel(key_mix_ref, weights_ref, out_ref):
     
     # Round 1: L' = L + (R * R)
     R_int8 = vR.astype(jnp.int8)
-    # pl.dot with preferred_element_type=jnp.int32 maps to mma.sync on Tensor Cores!
-    L_out = vL + pl.dot(R_int8, R_int8, preferred_element_type=jnp.int32).astype(jnp.uint32)
+    L_out = vL + pl.dot(R_int8, R_int8).astype(jnp.uint32)
     
     # Round 2: R' = R + (L' * L')
     L_out_int8 = L_out.astype(jnp.int8)
-    R_out = vR + pl.dot(L_out_int8, L_out_int8, preferred_element_type=jnp.int32).astype(jnp.uint32)
+    R_out = vR + pl.dot(L_out_int8, L_out_int8).astype(jnp.uint32)
     
     # Optional: final mix
     L_out = fast_mix_u32(L_out)
