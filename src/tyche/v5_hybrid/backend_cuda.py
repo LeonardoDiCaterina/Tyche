@@ -10,6 +10,15 @@ from tyche.v2 import algorithm
 make_tiles = algorithm.make_tiles
 _mix_key_const = algorithm._mix_key_const
 
+try:
+    import tyche_csrc
+    for name, fn in tyche_csrc.registrations().items():
+        xla_client.register_custom_call_target(name, fn, platform="gpu")
+        xla_client.register_custom_call_target(name, fn, platform="CUDA")
+except ImportError as e:
+    import warnings
+    warnings.warn(f"Could not import tyche_csrc: {e}")
+
 # ----------------- Tyche V5 Hash Primitive -----------------
 tyche_v5_hash_p = core_ext.Primitive("tyche_v5_hash")
 tyche_v5_hash_p.multiple_results = False
