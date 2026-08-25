@@ -100,7 +100,7 @@ def run_fused_monte_carlo(total_points=5_000_000_000):
     total_hits = jnp.sum(block_counts)
     t1 = time.perf_counter()
     
-    pi_estimate = 4.0 * (total_hits / (num_blocks * points_per_block))
+    pi_estimate = 4.0 * (total_hits / float(num_blocks * points_per_block))
     time_taken = t1 - t0
     
     print(f"    Pi Estimate: {pi_estimate:.6f}")
