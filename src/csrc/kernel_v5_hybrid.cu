@@ -86,7 +86,7 @@ __global__ void tyche_v5_hybrid_kernel(
     wmma::load_matrix_sync(a_frag, my_smem_i8, 16);
     wmma::load_matrix_sync(b_frag, my_smem_i8, 16);
     // Load the full 32-bit state into the accumulator to preserve entropy!
-    wmma::load_matrix_sync(acc_frag, my_smem_u32, 16, wmma::mem_row_major);
+    wmma::load_matrix_sync(acc_frag, (const int32_t*)my_smem_u32, 16, wmma::mem_row_major);
     
     // Compute A * B + acc_frag (which holds the full 32-bit entropy)
     wmma::mma_sync(acc_frag, a_frag, b_frag, acc_frag);
