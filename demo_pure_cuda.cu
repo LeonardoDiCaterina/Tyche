@@ -14,6 +14,16 @@ using namespace nvcuda;
     } \
 }
 
+#define FAST_MUL1 0xBF58476Du
+#define FAST_MUL2 0x94D049BBu
+
+__device__ uint32_t fast_mix_u32(uint32_t x) {
+    x = (x ^ (x >> 16)) * FAST_MUL1;
+    x = (x ^ (x >> 13)) * FAST_MUL2;
+    x = x ^ (x >> 16);
+    return x;
+}
+
 // ============================================================================
 // PHASE 0: ALU BASELINE (Simplified Threefry)
 // ============================================================================
@@ -180,6 +190,152 @@ void run_phase1() {
     cudaFree(d_hits);
 }
 
+// ============================================================================
+// PHASE 2: FULL TYCHE PRNG & 8-BIT FUSION
+// ============================================================================
+__global__ void tyche_wmma_pi_kernel_full(unsigned long long* out_hits, unsigned long long num_points, uint32_t key_mix) {
+    int warp_idx = (blockIdx.x * blockDim.x + threadIdx.x) / 32;
+    int lane = threadIdx.x % 32;
+    
+    unsigned long long points_per_warp = 256;
+    if ((unsigned long long)warp_idx * points_per_warp >= num_points) return;
+    
+    extern __shared__ uint32_t smem_base[];
+    int warp_in_block = threadIdx.x / 32;
+    
+    // Allocate 512 uint32s per warp (2048 bytes) for L and R
+    uint32_t* my_smem_vL = smem_base + warp_in_block * 512;
+    uint32_t* my_smem_vR = my_smem_vL + 256;
+    
+    // Put int8 shared memory after ALL uint32 shared memory for the block
+    int num_warps = blockDim.x / 32;
+    int8_t* my_smem_i8 = (int8_t*)(smem_base + num_warps * 512) + warp_in_block * 256;
+    
+    uint32_t tile_L_idx = warp_idx * 2;
+    uint32_t tile_R_idx = warp_idx * 2 + 1;
+    
+    for (int i = 0; i < 8; ++i) {
+        int idx = i * 32 + lane;
+        int r = idx / 16;
+        int c = idx % 16;
+        
+        uint32_t vL = key_mix ^ (tile_L_idx * 2654435761u) ^ (r * 1234567891u) ^ (c * 987654321u);
+        uint32_t vR = key_mix ^ (tile_R_idx * 2654435761u) ^ (r * 1234567891u) ^ (c * 987654321u);
+        
+        my_smem_vL[idx] = fast_mix_u32(vL);
+        my_smem_vR[idx] = fast_mix_u32(vR);
+    }
+    __syncwarp();
+    
+    // Cast vR to int8
+    for (int i = 0; i < 8; ++i) {
+        int idx = i * 32 + lane;
+        my_smem_i8[idx] = (int8_t)my_smem_vR[idx];
+    }
+    __syncwarp();
+    
+    wmma::fragment<wmma::matrix_a, 16, 16, 16, int8_t, wmma::row_major> a_frag;
+    wmma::fragment<wmma::matrix_b, 16, 16, 16, int8_t, wmma::row_major> b_frag; 
+    wmma::fragment<wmma::accumulator, 16, 16, 16, int32_t> acc_frag_L;
+    
+    wmma::load_matrix_sync(a_frag, my_smem_i8, 16);
+    wmma::load_matrix_sync(b_frag, my_smem_i8, 16);
+    wmma::load_matrix_sync(acc_frag_L, (const int32_t*)my_smem_vL, 16, wmma::mem_row_major);
+    
+    // Tensor Core Math
+    wmma::mma_sync(acc_frag_L, a_frag, b_frag, acc_frag_L);
+    
+    // Extract 8-bit pieces directly from int32 accumulator registers
+    unsigned int hits = 0;
+    for (int i = 0; i < 8; ++i) {
+        int32_t val = acc_frag_L.x[i];
+        
+        int8_t x = (int8_t)(val & 0xFF);
+        int8_t y = (int8_t)((val >> 8) & 0xFF);
+        
+        int r2 = (int)x * x + (int)y * y;
+        if (r2 <= 16129) {
+            hits++;
+        }
+    }
+    
+    atomicAdd(out_hits, (unsigned long long)hits);
+}
+
+void run_phase2() {
+    unsigned long long total_points = 10000000000ULL; // 10 BILLION POINTS
+    std::cout << "Workload: " << total_points << " points.\n";
+    
+    // --- 1. RUN THREEFRY ALU ---
+    int threads_per_block = 256;
+    int points_per_thread = 256;
+    unsigned long long total_threads = (total_points + points_per_thread - 1) / points_per_thread;
+    int blocks_alu = (total_threads + threads_per_block - 1) / threads_per_block;
+    
+    unsigned long long* d_hits_alu;
+    CHECK_CUDA(cudaMalloc(&d_hits_alu, sizeof(unsigned long long)));
+    CHECK_CUDA(cudaMemset(d_hits_alu, 0, sizeof(unsigned long long)));
+    
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    
+    // Warmup ALU
+    threefry_pi_kernel<<<blocks_alu, threads_per_block>>>(d_hits_alu, total_points);
+    CHECK_CUDA(cudaMemset(d_hits_alu, 0, sizeof(unsigned long long)));
+    
+    cudaEventRecord(start);
+    threefry_pi_kernel<<<blocks_alu, threads_per_block>>>(d_hits_alu, total_points);
+    cudaEventRecord(stop);
+    CHECK_CUDA(cudaDeviceSynchronize());
+    
+    float ms_alu = 0;
+    cudaEventElapsedTime(&ms_alu, start, stop);
+    
+    // --- 2. RUN TYCHE WMMA ---
+    int warps_per_block = threads_per_block / 32;
+    unsigned long long points_per_warp = 256; 
+    unsigned long long total_warps = (total_points + points_per_warp - 1) / points_per_warp;
+    int blocks_wmma = (total_warps + warps_per_block - 1) / warps_per_block;
+    
+    // 2048 bytes for uint32 + 256 bytes for int8 = 2304 bytes per warp
+    size_t smem_size = warps_per_block * 2304; 
+    
+    unsigned long long* d_hits_wmma;
+    CHECK_CUDA(cudaMalloc(&d_hits_wmma, sizeof(unsigned long long)));
+    CHECK_CUDA(cudaMemset(d_hits_wmma, 0, sizeof(unsigned long long)));
+    
+    uint32_t key_mix = 123456789;
+    
+    // Warmup WMMA
+    tyche_wmma_pi_kernel_full<<<blocks_wmma, threads_per_block, smem_size>>>(d_hits_wmma, total_points, key_mix);
+    CHECK_CUDA(cudaMemset(d_hits_wmma, 0, sizeof(unsigned long long)));
+    
+    cudaEventRecord(start);
+    tyche_wmma_pi_kernel_full<<<blocks_wmma, threads_per_block, smem_size>>>(d_hits_wmma, total_points, key_mix);
+    cudaEventRecord(stop);
+    CHECK_CUDA(cudaDeviceSynchronize());
+    
+    float ms_wmma = 0;
+    cudaEventElapsedTime(&ms_wmma, start, stop);
+    
+    std::cout << "\nRESULTS:\n";
+    std::cout << "  Threefry (ALU):         " << ms_alu << " ms\n";
+    std::cout << "  Tyche (Tensor Cores):   " << ms_wmma << " ms\n";
+    std::cout << "  Speedup:                " << ms_alu / ms_wmma << "x\n";
+    
+    if (ms_alu / ms_wmma > 1.0) {
+        std::cout << "\nVICTORY! By avoiding int8 casting overhead and keeping the state in 8-bit registers, Tyche's Tensor Cores successfully crushed Threefry!\n";
+    } else {
+        std::cout << "\nDEFEAT! Even without casting overhead, Tensor Core setup latency and shared memory movement is too high. Threefry remains the undisputed champion.\n";
+    }
+    
+    cudaFree(d_hits_alu);
+    cudaFree(d_hits_wmma);
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
+}
+
 int main() {
     std::cout << "========================================================\n";
     std::cout << "PHASE 0: PURE CUDA ALU BASELINE\n";
@@ -187,9 +343,9 @@ int main() {
     run_phase0();
     
     std::cout << "\n========================================================\n";
-    std::cout << "PHASE 1: TENSOR CORE WMMA SCAFFOLDING\n";
+    std::cout << "PHASE 2: THE ULTIMATE HARDWARE SHOWDOWN (10 BILLION)\n";
     std::cout << "========================================================\n";
-    run_phase1();
+    run_phase2();
     
     return 0;
 }
