@@ -86,10 +86,11 @@ def jax_native_integral(key, num_points):
 
 
 # ==============================================================================
-# 3. 3D SPHERE VOLUME
-# True Volume = 4/3 * pi ≈ 4.18879
+# 3. 2D ROSENBROCK FUNCTION
+# f(x, y) = (1 - x)^2 + 100 * (y - x^2)^2
+# We evaluate the average value over [0, 1]x[0, 1]
 # ==============================================================================
-def pallas_sphere_kernel(key_mix_ref, weights_ref, out_ref):
+def pallas_rosenbrock_kernel(key_mix_ref, weights_ref, out_ref):
     i = pl.program_id(0)
     tile_L = jnp.uint32(i * 2)
     tile_R = jnp.uint32(i * 2 + 1)
@@ -105,27 +106,19 @@ def pallas_sphere_kernel(key_mix_ref, weights_ref, out_ref):
     L_i8 = L_out.astype(jnp.int8)
     R_out = vR + pl.dot(L_i8, L_i8).astype(jnp.uint32)
     
-    L_out = fast_mix_u32(L_out)
-    R_out = fast_mix_u32(R_out)
+    x = fast_mix_u32(L_out).astype(jnp.float32) / jnp.float32(MAX_VAL)
+    y = fast_mix_u32(R_out).astype(jnp.float32) / jnp.float32(MAX_VAL)
     
-    # We have 512 total variables. A 3D point needs 3. 
-    # We will just use the first 3 chunks of 128 variables from the combined matrices.
-    # L_out is 16x16 = 256. R_out is 256. Total = 512.
-    # Let's take x, y, z as 128-element chunks.
-    x = L_out[:8, :].astype(jnp.float32) / jnp.float32(MAX_VAL)
-    y = L_out[8:, :].astype(jnp.float32) / jnp.float32(MAX_VAL)
-    z = R_out[:8, :].astype(jnp.float32) / jnp.float32(MAX_VAL)
-    
-    hits = (x**2 + y**2 + z**2) <= 1.0
-    out_ref[0] = jnp.sum(hits, dtype=jnp.uint32)
+    f = (1.0 - x)**2 + 100.0 * (y - x**2)**2
+    out_ref[0] = jnp.sum(f)
 
 @functools.partial(jax.jit, static_argnames=['num_points'])
-def jax_native_sphere(key, num_points):
-    k1, k2, k3 = jax.random.split(key, 3)
+def jax_native_rosenbrock(key, num_points):
+    k1, k2 = jax.random.split(key)
     x = jax.random.uniform(k1, shape=(num_points,))
     y = jax.random.uniform(k2, shape=(num_points,))
-    z = jax.random.uniform(k3, shape=(num_points,))
-    return jnp.sum((x**2 + y**2 + z**2) <= 1.0)
+    f = (1.0 - x)**2 + 100.0 * (y - x**2)**2
+    return jnp.sum(f)
 
 
 # ==============================================================================
@@ -197,32 +190,32 @@ def run_benchmarks(total_points_per_run, num_runs):
     print(f"  Speedup:         {t_native_int / t_pallas_int:.2f}x")
 
     # ------------------
-    # 3. 3D SPHERE VOLUME
+    # 3. 2D ROSENBROCK FUNCTION
     # ------------------
-    print("\n[3] 3D Sphere Volume Estimation")
-    # Our block processes 128 points
-    num_blocks_sph = total_points_per_run // 128
-    pallas_sph = jax.jit(pl.pallas_call(pallas_sphere_kernel, out_shape=jax.ShapeDtypeStruct((num_blocks_sph,), jnp.uint32), grid=(num_blocks_sph,), in_specs=[pl.BlockSpec((1,), lambda i: (0,)), pl.BlockSpec((1, 16), lambda i: (0, 0))], out_specs=pl.BlockSpec((1,), lambda i: (i,))))
+    print("\n[3] 2D Rosenbrock Function Evaluation")
+    # Our block processes 256 points (x and y)
+    num_blocks_ros = total_points_per_run // 256
+    pallas_ros = jax.jit(pl.pallas_call(pallas_rosenbrock_kernel, out_shape=jax.ShapeDtypeStruct((num_blocks_ros,), jnp.float32), grid=(num_blocks_ros,), in_specs=[pl.BlockSpec((1,), lambda i: (0,)), pl.BlockSpec((1, 16), lambda i: (0, 0))], out_specs=pl.BlockSpec((1,), lambda i: (i,))))
     
     # Warmup
-    pallas_sph(key_mix, weights).block_until_ready()
-    jax_native_sphere(jax.random.PRNGKey(42), total_points_per_run).block_until_ready()
+    pallas_ros(key_mix, weights).block_until_ready()
+    jax_native_rosenbrock(jax.random.PRNGKey(42), total_points_per_run).block_until_ready()
     
     t0 = time.perf_counter()
-    for _ in range(num_runs): pallas_sph(key_mix, weights).block_until_ready()
-    t_pallas_sph = (time.perf_counter() - t0) / num_runs
+    for _ in range(num_runs): pallas_ros(key_mix, weights).block_until_ready()
+    t_pallas_ros = (time.perf_counter() - t0) / num_runs
     
     t0 = time.perf_counter()
-    for _ in range(num_runs): jax_native_sphere(jax.random.PRNGKey(42), total_points_per_run).block_until_ready()
-    t_native_sph = (time.perf_counter() - t0) / num_runs
+    for _ in range(num_runs): jax_native_rosenbrock(jax.random.PRNGKey(42), total_points_per_run).block_until_ready()
+    t_native_ros = (time.perf_counter() - t0) / num_runs
     
-    total_hits_sph = jnp.sum(pallas_sph(key_mix, weights))
-    est_sph = 8.0 * (total_hits_sph / float(num_blocks_sph * 128))
+    total_val_ros = jnp.sum(pallas_ros(key_mix, weights))
+    est_ros = total_val_ros / float(num_blocks_ros * 256)
     
-    print(f"  Estimate: {est_sph:.6f} (True ~4.18879)")
-    print(f"  Native Threefry: {t_native_sph:.5f}s per run")
-    print(f"  Tyche Pallas:    {t_pallas_sph:.5f}s per run")
-    print(f"  Speedup:         {t_native_sph / t_pallas_sph:.2f}x")
+    print(f"  Estimate: {est_ros:.6f}")
+    print(f"  Native Threefry: {t_native_ros:.5f}s per run")
+    print(f"  Tyche Pallas:    {t_pallas_ros:.5f}s per run")
+    print(f"  Speedup:         {t_native_ros / t_pallas_ros:.2f}x")
     
     print("\n" + "="*80)
 
