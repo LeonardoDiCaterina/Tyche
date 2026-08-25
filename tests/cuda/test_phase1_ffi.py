@@ -12,11 +12,7 @@ def test_dummy_fill_ffi():
     # The dummy fill kernel fills the array with 42
     size = 100
     
-    @jax.jit(static_argnums=(0,))
-    def run_dummy(s):
-        return tyche.backend_cuda.dummy_fill(s)
-    
-    out = run_dummy(size)
+    out = tyche.backend_cuda.dummy_fill(size)
     
     assert out.shape == (100,)
     assert out.dtype == jnp.uint32
