@@ -55,10 +55,13 @@ def run_sweep(batch_sizes, num_warmups=3, num_iters=10):
         print(f"Tyche V1 (T=4, R=4): {throughput_gbps:.2f} GB/s")
 
         # 3. Benchmark Tyche V2 configurations
-        for tile_size in [16, 32, 64]:
-            for num_rounds in [2, 4, 6, 8]:
-                cfg = TycheV2Config(tile_size=tile_size, num_rounds=num_rounds, backend="pallas")
-                impl = cfg.build()
+        for backend_name in ["pallas", "cuda"]:
+            for tile_size in [16, 32, 64]:
+                if backend_name == "cuda" and tile_size != 16:
+                    continue # WMMA MVP only supports T=16
+                for num_rounds in [2, 4, 6, 8]:
+                    cfg = TycheV2Config(tile_size=tile_size, num_rounds=num_rounds, backend=backend_name)
+                    impl = cfg.build()
                 key = jax.random.key(42, impl=impl)
                 
                 def gen_tyche_v2():
@@ -75,11 +78,11 @@ def run_sweep(batch_sizes, num_warmups=3, num_iters=10):
                     
                     throughput_gbps = (batch_size * 4 * num_iters) / (t1 - t0) / 1e9
                     results.append({
-                        "generator": "Tyche V2", "tile_size": tile_size, "num_rounds": num_rounds, "batch_size": batch_size, "throughput_GBs": throughput_gbps
+                        "generator": f"Tyche V2 ({backend_name})", "tile_size": tile_size, "num_rounds": num_rounds, "batch_size": batch_size, "throughput_GBs": throughput_gbps
                     })
-                    print(f"Tyche V2 (T={tile_size}, R={num_rounds}): {throughput_gbps:.2f} GB/s")
+                    print(f"Tyche V2 {backend_name} (T={tile_size}, R={num_rounds}): {throughput_gbps:.2f} GB/s")
                 except Exception as e:
-                    print(f"Failed configuration T={tile_size}, R={num_rounds}: {e}")
+                    print(f"Failed configuration {backend_name} T={tile_size}, R={num_rounds}: {e}")
 
         # 4. Benchmark Tyche V2.1 configurations (vectorized)
         for tile_size in [16, 32, 64]:
