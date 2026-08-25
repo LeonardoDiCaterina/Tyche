@@ -23,6 +23,11 @@ class TycheV2Config:
             self._backend = PallasBackendV2(num_rounds, tile_size)
             self._hash_parallel = self._backend.hash_parallel
             self._make_tiles = self._backend.make_tiles
+        elif backend == "cuda":
+            from tyche.v2.backend_cuda import CudaBackendV2
+            self._backend = CudaBackendV2(num_rounds, tile_size)
+            self._hash_parallel = self._backend.hash_parallel
+            self._make_tiles = self._backend.make_tiles
         else:
             self._backend = None
             _hash_p = make_hash_parallel(num_rounds)
