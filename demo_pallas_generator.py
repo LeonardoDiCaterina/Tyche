@@ -57,7 +57,7 @@ def pallas_v5b_kernel(key_mix_ref, weights_ref, out_ref):
     
     # Store both tiles (concatenated into a 2x16x16 or we just output 1 tile for simplicity)
     # For MVP, let's just output L_out to match the (1, 16, 16) out_specs shape
-    out_ref[...] = L_out
+    out_ref[0, :, :] = L_out
 
 def run_pallas_generator(num_tiles=1000):
     tile_size = 16
