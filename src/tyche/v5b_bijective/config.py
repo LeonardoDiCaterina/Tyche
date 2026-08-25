@@ -22,7 +22,7 @@ class TycheV5bConfig:
         if num_rounds != 1:
             raise ValueError("Tyche V5b Hybrid MVP only supports num_rounds=1")
 
-        from tyche.v5b_hybrid.backend_cuda import CudaBackendV5b
+        from tyche.v5b_bijective.backend_cuda import CudaBackendV5b
         self._backend = CudaBackendV5b(num_rounds, tile_size)
         
         self.tile_size = tile_size

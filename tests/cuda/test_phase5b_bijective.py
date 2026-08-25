@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 import pytest
-from tyche.v5b_hybrid.config import TycheV5bConfig
+from tyche.v5b_bijective.config import TycheV5bConfig
 import numpy as np
 
 def test_frequencies_v5b():
