@@ -60,7 +60,7 @@ def pallas_fused_monte_carlo_kernel(key_mix_ref, weights_ref, out_ref):
     block_hits = jnp.sum(hits, dtype=jnp.uint32)
     
     # Write exactly 1 integer to global memory per block
-    out_ref[...] = block_hits
+    out_ref[0] = block_hits
 
 
 def run_fused_monte_carlo(total_points=5_000_000_000):
@@ -84,7 +84,7 @@ def run_fused_monte_carlo(total_points=5_000_000_000):
             pl.BlockSpec((1,), lambda i: (0,)),
             pl.BlockSpec((1, 16), lambda i: (0, 0)),
         ],
-        out_specs=pl.BlockSpec((), lambda i: (i,)),
+        out_specs=pl.BlockSpec((1,), lambda i: (i,)),
     )
     
     jitted = jax.jit(pallas_fn)
