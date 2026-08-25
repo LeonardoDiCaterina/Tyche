@@ -10,12 +10,12 @@ import time
 # warp-shuffle butterfly network used in the C++ version. 
 # This perfectly simulates the computational load of the Tensor Core PRNG!
 
-FAST_MUL1 = jnp.uint32(0xBF58476D)
-FAST_MUL2 = jnp.uint32(0x94D049BB)
+FAST_MUL1 = 0xBF58476D
+FAST_MUL2 = 0x94D049BB
 
 def fast_mix_u32(x):
-    x = (x ^ (x >> jnp.uint32(16))) * FAST_MUL1
-    x = (x ^ (x >> jnp.uint32(13))) * FAST_MUL2
+    x = (x ^ (x >> jnp.uint32(16))) * jnp.uint32(FAST_MUL1)
+    x = (x ^ (x >> jnp.uint32(13))) * jnp.uint32(FAST_MUL2)
     x = x ^ (x >> jnp.uint32(16))
     return x
 
