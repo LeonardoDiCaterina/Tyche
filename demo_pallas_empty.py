@@ -14,7 +14,7 @@ def empty_kernel(key_mix_ref, weights_ref, out_ref):
     i = pl.program_id(0)
     
     # Just write zeros to the output
-    out_ref[...] = jnp.zeros((16, 16), dtype=jnp.uint32)
+    out_ref[...] = jnp.zeros((1, 16, 16), dtype=jnp.uint32)
 
 def run_empty_pallas(num_tiles=1000, tile_size=16):
     # Dummy inputs
@@ -33,7 +33,7 @@ def run_empty_pallas(num_tiles=1000, tile_size=16):
             pl.BlockSpec((1,), lambda i: (0,)),                 # key_mix has shape (1,)
             pl.BlockSpec((1, tile_size), lambda i: (0, 0)),     # weights are shared across all blocks
         ],
-        out_specs=pl.BlockSpec((tile_size, tile_size), lambda i: (i, 0, 0)), # Each block outputs a tile_size x tile_size tile
+        out_specs=pl.BlockSpec((1, tile_size, tile_size), lambda i: (i, 0, 0)), # Each block outputs a 1 x tile_size x tile_size tile
     )
     
     # JIT compile
