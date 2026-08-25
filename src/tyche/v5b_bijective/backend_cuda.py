@@ -1,87 +1,71 @@
-"""CUDA/C++ implementation of Tyche V5b Bijective algorithm."""
-from typing import Optional, Tuple
 import jax
+import jax.core as jax_core
+import jax.extend.core as core_ext
 import jax.numpy as jnp
+from jax.interpreters import mlir, xla
 from jax.lib import xla_client
-from jax import core, dtypes
-from jax.interpreters import mlir
-from jax.interpreters.mlir import ir
-import tyche_csrc
-from .config import TycheV5bConfig
+import struct
 
-# Register the custom call targets
-for name, fn in tyche_csrc.registrations().items():
-    xla_client.register_custom_call_target(name, fn, platform="gpu")
+from tyche.v2 import algorithm
+make_tiles = algorithm.make_tiles
+_mix_key_const = algorithm._mix_key_const
 
-_tyche_v5b_p = core.Primitive("tyche_v5b_hash")
-_tyche_v5b_p.multiple_results = True
+try:
+    import tyche_csrc
+    for name, fn in tyche_csrc.registrations().items():
+        xla_client.register_custom_call_target(name, fn, platform="gpu")
+        xla_client.register_custom_call_target(name, fn, platform="CUDA")
+except ImportError as e:
+    import warnings
+    warnings.warn(f"Could not import tyche_csrc: {e}")
 
-def generate_v5b_cuda(
-    keys: jnp.ndarray,
-    config: TycheV5bConfig,
-    offset: int = 0
-) -> jnp.ndarray:
-    """Generate pseudo-random numbers using Tyche V5b Bijective (C++ backend)."""
-    assert keys.dtype == jnp.uint32
-    assert keys.shape == (8,)
+# ----------------- Tyche V5 Hash Primitive -----------------
+tyche_v5b_hash_p = core_ext.Primitive("tyche_v5b_hash")
+tyche_v5b_hash_p.multiple_results = False
+tyche_v5b_hash_p.def_impl(lambda key, weight_matrices, key_mix, **kwargs: xla.apply_primitive(tyche_v5b_hash_p, key, weight_matrices, key_mix, **kwargs))
 
-    num_tiles = config.blocks * config.warps_per_block * 2 # V5b processes 2 tiles per warp
-    total_elements = num_tiles * 256
+@tyche_v5b_hash_p.def_abstract_eval
+def tyche_v5b_hash_abstract_eval(key, weight_matrices, key_mix, *, offset, num_tiles, T, R, embedding_type):
+    # V5 returns uint32 instead of int8!
+    return jax_core.ShapedArray((num_tiles, T, T), jnp.uint32)
 
-    if config.R != 1 or config.T != 16:
-        raise ValueError("V5b Bijective currently only supports T=16 and R=1")
-
-    out = _tyche_v5b_p.bind(
-        keys,
-        config.weight_matrices,
-        config.key_mix,
-        offset=offset,
-        num_tiles=num_tiles,
-        T=config.T,
-        R=config.R,
-        embedding_type=config.embedding_type.value,
-        total_elements=total_elements
+def tyche_v5b_hash_lowering(ctx, key, weight_matrices, key_mix, *, offset, num_tiles, T, R, embedding_type):
+    opaque = struct.pack("iiiii", offset, num_tiles, T, R, embedding_type)
+    
+    out_type = mlir.ir.RankedTensorType.get(
+        [num_tiles, T, T], 
+        mlir.ir.IntegerType.get_unsigned(32)
     )
     
-    return out[0].reshape((total_elements,))
-
-def _tyche_v5b_abstract_eval(keys, weights, key_mix, **kwargs):
-    total_elements = kwargs['total_elements']
-    return (core.ShapedArray((total_elements,), jnp.uint32),)
-
-def _tyche_v5b_lowering(ctx, keys, weights, key_mix, **kwargs):
-    opaque = tyche_csrc.TycheV1ConfigOpaque()
-    opaque.offset = kwargs['offset']
-    opaque.num_tiles = kwargs['num_tiles']
-    opaque.T = kwargs['T']
-    opaque.R = kwargs['R']
-    opaque.embedding_type = kwargs['embedding_type']
-    
-    opaque_bytes = bytes(opaque)
-    
-    out_type = ir.RankedTensorType.get(
-        [kwargs['total_elements']], 
-        ir.IntegerType.get_unsigned(32)
-    )
-    
-    call = mlir.custom_call(
+    return mlir.custom_call(
         "tyche_v5b_hash",
         result_types=[out_type],
-        operands=[keys, weights, key_mix],
-        backend_config=opaque_bytes,
-        operand_layouts=[
-            ir.AffineMap.get_permutation([0]),
-            ir.AffineMap.get_permutation([0, 1]),
-            ir.AffineMap.get_permutation([0]),
-        ],
-        result_layouts=[
-            ir.AffineMap.get_permutation([0])
-        ]
-    )
-    return call.results
+        operands=[key, weight_matrices, key_mix],
+        backend_config=opaque,
+        api_version=2,
+    ).results
 
-_tyche_v5b_p.def_impl(lambda *args, **kwargs: xla_client.execute_with_python_fallback(
-    _tyche_v5b_p, args, kwargs
-))
-_tyche_v5b_p.def_abstract_eval(_tyche_v5b_abstract_eval)
-mlir.register_lowering(_tyche_v5b_p, _tyche_v5b_lowering, platform="gpu")
+mlir.register_lowering(tyche_v5b_hash_p, tyche_v5b_hash_lowering, platform="gpu")
+
+# ----------------- CudaBackendV5 -----------------
+class CudaBackendV5:
+    def __init__(self, num_rounds: int, tile_size: int):
+        self.R = num_rounds
+        self.T = tile_size
+
+    def hash_parallel(self, key, offset, num_tiles, weight_matrices, embedding):
+        embedding_type = {"hash": 0, "diagonal": 1, "row": 2, "rank1": 3}.get(embedding, 0)
+        key_mix = _mix_key_const(key)
+        flat_key = key.flatten()
+        flat_weight_matrices = weight_matrices.flatten()
+        
+        return tyche_v5b_hash_p.bind(
+            flat_key,
+            flat_weight_matrices,
+            key_mix,
+            offset=offset,
+            num_tiles=num_tiles,
+            T=self.T,
+            R=self.R,
+            embedding_type=embedding_type
+        )
