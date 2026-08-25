@@ -22,10 +22,12 @@ __global__ void tyche_v1_kernel(
     int T,
     int R,
     int embedding_type,
-    uint32_t key_mix
+    const uint32_t* key_mix_ptr
 ) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= num_tiles) return;
+    
+    uint32_t key_mix = *key_mix_ptr;
     
     uint32_t tile_idx = (uint32_t)offset + (uint32_t)idx;
     
@@ -95,13 +97,13 @@ void tyche_v1_kernel_launch(
     int T,
     int R,
     int embedding_type,
-    uint32_t key_mix
+    const uint32_t* key_mix_ptr
 ) {
     int threads = 256;
     int blocks = (num_tiles + threads - 1) / threads;
     if (blocks > 0) {
         tyche_v1_kernel<<<blocks, threads, 0, stream>>>(
-            out, key, weight_matrices, offset, num_tiles, T, R, embedding_type, key_mix
+            out, key, weight_matrices, offset, num_tiles, T, R, embedding_type, key_mix_ptr
         );
     }
 }

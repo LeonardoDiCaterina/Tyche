@@ -14,7 +14,6 @@ struct TycheV1ConfigOpaque {
     int T;
     int R;
     int embedding_type;
-    uint32_t key_mix;
 };
 
 void tyche_v1_hash(cudaStream_t stream, void** buffers, const char* opaque, size_t opaque_len) {
@@ -23,11 +22,12 @@ void tyche_v1_hash(cudaStream_t stream, void** buffers, const char* opaque, size
     
     const uint32_t* key = reinterpret_cast<const uint32_t*>(buffers[0]);
     const uint32_t* weight_matrices = reinterpret_cast<const uint32_t*>(buffers[1]);
-    int8_t* out = reinterpret_cast<int8_t*>(buffers[2]);
+    const uint32_t* key_mix_ptr = reinterpret_cast<const uint32_t*>(buffers[2]);
+    int8_t* out = reinterpret_cast<int8_t*>(buffers[3]);
     
     tyche_v1_kernel_launch(
         stream, out, key, weight_matrices,
-        config->offset, config->num_tiles, config->T, config->R, config->embedding_type, config->key_mix
+        config->offset, config->num_tiles, config->T, config->R, config->embedding_type, *key_mix_ptr
     );
 }
 
@@ -38,11 +38,12 @@ void tyche_v2_hash(cudaStream_t stream, void** buffers, const char* opaque, size
     // Inputs come first in legacy custom call API
     const uint32_t* key = reinterpret_cast<const uint32_t*>(buffers[0]);
     const uint32_t* weight_matrices = reinterpret_cast<const uint32_t*>(buffers[1]);
-    int8_t* out = reinterpret_cast<int8_t*>(buffers[2]);
+    const uint32_t* key_mix_ptr = reinterpret_cast<const uint32_t*>(buffers[2]);
+    int8_t* out = reinterpret_cast<int8_t*>(buffers[3]);
     
     tyche_v2_wmma_kernel_launch(
         stream, out, key, weight_matrices,
-        config->offset, config->num_tiles, config->T, config->R, config->embedding_type, config->key_mix
+        config->offset, config->num_tiles, config->T, config->R, config->embedding_type, *key_mix_ptr
     );
 }
 

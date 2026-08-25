@@ -27,10 +27,12 @@ __global__ void tyche_v2_wmma_kernel(
     int T,
     int R,
     int embedding_type,
-    uint32_t key_mix
+    const uint32_t* key_mix_ptr
 ) {
     // Only support T=16 for now
     if (T != 16) return;
+
+    uint32_t key_mix = *key_mix_ptr;
 
     int warp_idx = (blockIdx.x * blockDim.x + threadIdx.x) / 32;
     int lane = threadIdx.x % 32;
@@ -126,7 +128,7 @@ void tyche_v2_wmma_kernel_launch(
     int T,
     int R,
     int embedding_type,
-    uint32_t key_mix
+    const uint32_t* key_mix_ptr
 ) {
     if (T != 16) return; // Only T=16 supported for WMMA in this MVP
     
@@ -139,7 +141,7 @@ void tyche_v2_wmma_kernel_launch(
     
     if (blocks > 0) {
         tyche_v2_wmma_kernel<<<blocks, threads, smem_size, stream>>>(
-            out, key, weight_matrices, offset, num_tiles, T, R, embedding_type, key_mix
+            out, key, weight_matrices, offset, num_tiles, T, R, embedding_type, key_mix_ptr
         );
     }
 }

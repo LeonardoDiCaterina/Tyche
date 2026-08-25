@@ -14,7 +14,7 @@ void tyche_v1_kernel_launch(
     int T,
     int R,
     int embedding_type,
-    uint32_t key_mix
+    const uint32_t* key_mix_ptr
 );
 
 void tyche_v2_wmma_kernel_launch(
@@ -27,7 +27,7 @@ void tyche_v2_wmma_kernel_launch(
     int T,
     int R,
     int embedding_type,
-    uint32_t key_mix
+    const uint32_t* key_mix_ptr
 );
 
 void dummy_fill(cudaStream_t stream, void** buffers, const char* opaque, size_t opaque_len);

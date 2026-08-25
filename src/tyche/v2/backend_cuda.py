@@ -23,15 +23,15 @@ except ImportError as e:
 # ----------------- Tyche V2 Hash Primitive -----------------
 tyche_v2_hash_p = core_ext.Primitive("tyche_v2_hash")
 tyche_v2_hash_p.multiple_results = False
-tyche_v2_hash_p.def_impl(lambda key, weight_matrices, **kwargs: xla.apply_primitive(tyche_v2_hash_p, key, weight_matrices, **kwargs))
+tyche_v2_hash_p.def_impl(lambda key, weight_matrices, key_mix, **kwargs: xla.apply_primitive(tyche_v2_hash_p, key, weight_matrices, key_mix, **kwargs))
 
 @tyche_v2_hash_p.def_abstract_eval
-def tyche_v2_hash_abstract_eval(key, weight_matrices, *, offset, num_tiles, T, R, embedding_type, key_mix):
+def tyche_v2_hash_abstract_eval(key, weight_matrices, key_mix, *, offset, num_tiles, T, R, embedding_type):
     return jax_core.ShapedArray((num_tiles, T, T), jnp.int8)
 
-def tyche_v2_hash_lowering(ctx, key, weight_matrices, *, offset, num_tiles, T, R, embedding_type, key_mix):
-    # struct TycheV1ConfigOpaque { int offset, int num_tiles, int T, int R, int embedding_type, uint32_t key_mix; }
-    opaque = struct.pack("iiiiiI", offset, num_tiles, T, R, embedding_type, key_mix)
+def tyche_v2_hash_lowering(ctx, key, weight_matrices, key_mix, *, offset, num_tiles, T, R, embedding_type):
+    # struct TycheV2ConfigOpaque { int offset, int num_tiles, int T, int R, int embedding_type; }
+    opaque = struct.pack("iiiii", offset, num_tiles, T, R, embedding_type)
     
     out_type = mlir.ir.RankedTensorType.get(
         [num_tiles, T, T], 
@@ -41,7 +41,7 @@ def tyche_v2_hash_lowering(ctx, key, weight_matrices, *, offset, num_tiles, T, R
     return mlir.custom_call(
         "tyche_v2_hash",
         result_types=[out_type],
-        operands=[key, weight_matrices],
+        operands=[key, weight_matrices, key_mix],
         backend_config=opaque,
         api_version=1,
     ).results
@@ -63,12 +63,12 @@ class CudaBackendV2:
         return tyche_v2_hash_p.bind(
             flat_key,
             flat_weight_matrices,
+            key_mix,
             offset=offset,
             num_tiles=num_tiles,
             T=self.T,
             R=self.R,
-            embedding_type=embedding_type,
-            key_mix=int(key_mix)
+            embedding_type=embedding_type
         )
 
     def apply_perturbation(self, weight_matrices, perturbation):
