@@ -7,7 +7,7 @@ import numpy as np
 
 FAST_MUL1 = 0xBF58476D
 FAST_MUL2 = 0x94D049BB
-MAX_VAL = jnp.float32(4294967295.0)
+MAX_VAL = 4294967295.0
 
 def fast_mix_u32(x):
     x = (x ^ (x >> jnp.uint32(16))) * jnp.uint32(FAST_MUL1)
@@ -34,8 +34,8 @@ def pallas_pi_kernel(key_mix_ref, weights_ref, out_ref):
     L_i8 = L_out.astype(jnp.int8)
     R_out = vR + pl.dot(L_i8, L_i8).astype(jnp.uint32)
     
-    x = fast_mix_u32(L_out).astype(jnp.float32) / MAX_VAL
-    y = fast_mix_u32(R_out).astype(jnp.float32) / MAX_VAL
+    x = fast_mix_u32(L_out).astype(jnp.float32) / jnp.float32(MAX_VAL)
+    y = fast_mix_u32(R_out).astype(jnp.float32) / jnp.float32(MAX_VAL)
     
     hits = (x**2 + y**2) <= 1.0
     out_ref[0] = jnp.sum(hits, dtype=jnp.uint32)
@@ -69,8 +69,8 @@ def pallas_integral_kernel(key_mix_ref, weights_ref, out_ref):
     R_out = vR + pl.dot(L_i8, L_i8).astype(jnp.uint32)
     
     # Use L_out and R_out as 512 total samples
-    x1 = fast_mix_u32(L_out).astype(jnp.float32) / MAX_VAL
-    x2 = fast_mix_u32(R_out).astype(jnp.float32) / MAX_VAL
+    x1 = fast_mix_u32(L_out).astype(jnp.float32) / jnp.float32(MAX_VAL)
+    x2 = fast_mix_u32(R_out).astype(jnp.float32) / jnp.float32(MAX_VAL)
     
     f1 = (x1**3) - 2.0*(x1**2) + x1
     f2 = (x2**3) - 2.0*(x2**2) + x2
@@ -111,9 +111,9 @@ def pallas_sphere_kernel(key_mix_ref, weights_ref, out_ref):
     # We will just use the first 3 chunks of 128 variables from the combined matrices.
     # L_out is 16x16 = 256. R_out is 256. Total = 512.
     # Let's take x, y, z as 128-element chunks.
-    x = L_out[:8, :].astype(jnp.float32) / MAX_VAL
-    y = L_out[8:, :].astype(jnp.float32) / MAX_VAL
-    z = R_out[:8, :].astype(jnp.float32) / MAX_VAL
+    x = L_out[:8, :].astype(jnp.float32) / jnp.float32(MAX_VAL)
+    y = L_out[8:, :].astype(jnp.float32) / jnp.float32(MAX_VAL)
+    z = R_out[:8, :].astype(jnp.float32) / jnp.float32(MAX_VAL)
     
     hits = (x**2 + y**2 + z**2) <= 1.0
     out_ref[0] = jnp.sum(hits, dtype=jnp.uint32)
