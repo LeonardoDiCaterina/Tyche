@@ -25,7 +25,7 @@ def tyche_v5_hash_lowering(ctx, key, weight_matrices, key_mix, *, offset, num_ti
     
     out_type = mlir.ir.RankedTensorType.get(
         [num_tiles, T, T], 
-        mlir.ir.IntegerType.get_signless(32)
+        mlir.ir.IntegerType.get_unsigned(32)
     )
     
     return mlir.custom_call(
