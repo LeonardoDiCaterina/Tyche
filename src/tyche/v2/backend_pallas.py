@@ -7,48 +7,77 @@ class PallasBackendV2:
         self.R = num_rounds
         self.T = tile_size
 
-    def hash_parallel(self, tiles_int8, weight_matrices):
-        N = tiles_int8.shape[0]
+    def hash_parallel(self, key, offset, num_tiles, weight_matrices, embedding):
+        from tyche.v2.algorithm import _mix_key_const
+        N = num_tiles
         T = self.T
+        key_mix = _mix_key_const(key)
+        key_mix_arr = jnp.array(key_mix, dtype=jnp.uint32)
 
-        def kernel(tiles_ref, weights_ref, out_ref):
-            # Each grid program handles one tile
-            i = pl.program_id(0)
+        def kernel(key_mix_ref, weights_ref, out_ref):
+            i = jnp.uint32(pl.program_id(0) + offset)
+            k_mix = key_mix_ref[...]
             
-            # Load the int8 tile into registers
-            x = pl.load(tiles_ref, (i, pl.dslice(T), pl.dslice(T)))
+            rows = jnp.arange(T, dtype=jnp.uint32)[:, None]
+            cols = jnp.arange(T, dtype=jnp.uint32)[None, :]
             
+            if embedding == "diagonal":
+                v_pre = k_mix ^ i
+                v_mix = (v_pre ^ (v_pre >> jnp.uint32(16))) * jnp.uint32(0xBF58476D)
+                v_mix = (v_mix ^ (v_mix >> jnp.uint32(13))) * jnp.uint32(0x94D049BB)
+                v_mix = v_mix ^ (v_mix >> jnp.uint32(16))
+                v = jnp.where(rows == cols, v_mix, jnp.uint32(0))
+            elif embedding == "row":
+                v_pre = k_mix ^ i ^ (rows * jnp.uint32(1234567891))
+                v_mix = (v_pre ^ (v_pre >> jnp.uint32(16))) * jnp.uint32(0xBF58476D)
+                v_mix = (v_mix ^ (v_mix >> jnp.uint32(13))) * jnp.uint32(0x94D049BB)
+                v_mix = v_mix ^ (v_mix >> jnp.uint32(16))
+                v = v_mix
+            elif embedding == "rank1":
+                v1_pre = k_mix ^ i ^ rows
+                v1_mix = (v1_pre ^ (v1_pre >> jnp.uint32(16))) * jnp.uint32(0xBF58476D)
+                v1_mix = (v1_mix ^ (v1_mix >> jnp.uint32(13))) * jnp.uint32(0x94D049BB)
+                v1_mix = v1_mix ^ (v1_mix >> jnp.uint32(16))
+                
+                v2_pre = k_mix ^ i ^ cols
+                v2_mix = (v2_pre ^ (v2_pre >> jnp.uint32(16))) * jnp.uint32(0xBF58476D)
+                v2_mix = (v2_mix ^ (v2_mix >> jnp.uint32(13))) * jnp.uint32(0x94D049BB)
+                v2_mix = v2_mix ^ (v2_mix >> jnp.uint32(16))
+                v = v1_mix * v2_mix
+            else:
+                v_pre = k_mix ^ (i * jnp.uint32(2654435761))
+                v_pre = v_pre ^ (rows * jnp.uint32(1234567891))
+                v_pre = v_pre ^ (cols * jnp.uint32(987654321))
+                
+                v_mix = (v_pre ^ (v_pre >> jnp.uint32(16))) * jnp.uint32(0xBF58476D)
+                v_mix = (v_mix ^ (v_mix >> jnp.uint32(13))) * jnp.uint32(0x94D049BB)
+                v_mix = v_mix ^ (v_mix >> jnp.uint32(16))
+                v = v_mix
+                
+            x = v.astype(jnp.int8)
+
             for r in range(self.R):
                 W_r = pl.load(weights_ref, (r, pl.dslice(T), pl.dslice(T)))
                 
-                # Tensor Core Path: int8 * int8 + int32 -> int32
-                # Cast the int32 accumulator to uint32 BEFORE adding W_r (which is uint32)
-                # to prevent JAX from silently promoting the result to int64.
                 acc = pl.dot(x, x)
                 acc_u32 = acc.astype(jnp.uint32) + W_r
-
-                # ALU Path
-                # Apply ODD_MULT to the uint32 accumulator
-                acc_u32 = acc_u32 * jnp.uint32(0x94D049BB)
                 
-                # XOR Fold
+                acc_u32 = acc_u32 * jnp.uint32(0x94D049BB)
                 folded = acc_u32 ^ (acc_u32 >> 16)
                 
-                # Truncate to int8 for the next round (free cast in PTX)
                 x = folded.astype(jnp.int8)
-                
-            pl.store(out_ref, (i, pl.dslice(T), pl.dslice(T)), x)
+            pl.store(out_ref, (pl.program_id(0), pl.dslice(T), pl.dslice(T)), x)
 
         return pl.pallas_call(
             kernel,
             out_shape=jax.ShapeDtypeStruct((N, T, T), jnp.int8),
             grid=(N,),
             in_specs=[
-                pl.BlockSpec((1, T, T), lambda i: (i, 0, 0)),
+                pl.BlockSpec((), lambda i: ()),
                 pl.BlockSpec((self.R, T, T), lambda i: (0, 0, 0)),
             ],
             out_specs=pl.BlockSpec((1, T, T), lambda i: (i, 0, 0)),
-        )(tiles_int8, weight_matrices)
+        )(key_mix_arr, weight_matrices)
 
     def apply_perturbation(self, weight_matrices, perturbation):
         # Same pattern — one grid program per round, but sizes are T

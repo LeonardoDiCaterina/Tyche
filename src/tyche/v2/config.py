@@ -69,8 +69,7 @@ class TycheV2Config:
         num_tiles = math.ceil(total_bytes_needed / bytes_per_tile)
 
         weight_matrices = _key_to_matrices(key, R, T)
-        tiles_in = self._make_tiles(key, 0, num_tiles, T, self.embedding)
-        hashed_tiles = self._hash_parallel(tiles_in, weight_matrices)
+        hashed_tiles = self._hash_parallel(key, 0, num_tiles, weight_matrices, self.embedding)
 
         flat_bytes = hashed_tiles.reshape(-1)[:total_bytes_needed]
         
