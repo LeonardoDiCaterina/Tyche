@@ -11,8 +11,10 @@ try:
     import tyche_csrc
     for name, fn in tyche_csrc.registrations().items():
         xla_client.register_custom_call_target(name, fn, platform="gpu")
-except ImportError:
-    pass # Will be handled by the user ensuring the extension is built
+        xla_client.register_custom_call_target(name, fn, platform="CUDA")
+except ImportError as e:
+    import warnings
+    warnings.warn(f"Failed to import tyche_csrc: {e}. Did you compile the C++ extension?")
 
 tyche_dummy_p = core_ext.Primitive("tyche_dummy")
 tyche_dummy_p.multiple_results = False
