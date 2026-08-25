@@ -11,3 +11,5 @@ set_target_properties(tyche_csrc PROPERTIES
 )
 
 target_include_directories(tyche_csrc PRIVATE ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
+
+install(TARGETS tyche_csrc DESTINATION .)
