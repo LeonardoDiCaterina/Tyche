@@ -40,10 +40,13 @@ __global__ void tyche_v5_hybrid_kernel(
     
     uint32_t tile_idx = (uint32_t)offset + (uint32_t)warp_idx;
     
-    // Shared memory ONLY for initial int8 input to wmma
-    extern __shared__ int8_t smem_base_v5[];
+    // Allocate shared memory for BOTH 32-bit (for acc_frag) and 8-bit (for a_frag/b_frag)
+    extern __shared__ uint32_t smem_base_v5_32[];
     int warp_in_block = threadIdx.x / 32;
-    int8_t* my_smem_i8 = smem_base_v5 + warp_in_block * 256;
+    uint32_t* my_smem_u32 = smem_base_v5_32 + warp_in_block * 256;
+    // Put the 8-bit array after the 32-bit arrays of ALL warps in the block
+    int num_warps = blockDim.x / 32;
+    int8_t* my_smem_i8 = (int8_t*)(smem_base_v5_32 + num_warps * 256) + warp_in_block * 256;
     
     // 1. Initial make_tile
     for (int i = 0; i < 8; ++i) {
@@ -66,6 +69,10 @@ __global__ void tyche_v5_hybrid_kernel(
             v = v ^ ((uint32_t)c * 987654321u);
             v = fast_mix_u32_v5(v);
         }
+        
+        // Store full 32-bit entropy to load into the accumulator
+        my_smem_u32[idx] = v;
+        // Truncate to 8-bit for the A/B matrices
         my_smem_i8[idx] = (int8_t)v;
     }
     
@@ -76,35 +83,44 @@ __global__ void tyche_v5_hybrid_kernel(
     wmma::fragment<wmma::matrix_b, 16, 16, 16, int8_t, wmma::row_major> b_frag; 
     wmma::fragment<wmma::accumulator, 16, 16, 16, int32_t> acc_frag;
     
-    const uint32_t* W_0 = weight_matrices; // Only use W_0 for R=1 pass
-    
     wmma::load_matrix_sync(a_frag, my_smem_i8, 16);
     wmma::load_matrix_sync(b_frag, my_smem_i8, 16);
-    wmma::load_matrix_sync(acc_frag, (const int32_t*)W_0, 16, wmma::mem_row_major);
+    // Load the full 32-bit state into the accumulator to preserve entropy!
+    wmma::load_matrix_sync(acc_frag, my_smem_u32, 16, wmma::mem_row_major);
     
+    // Compute A * B + acc_frag (which holds the full 32-bit entropy)
     wmma::mma_sync(acc_frag, a_frag, b_frag, acc_frag);
     
     // 3. The 5-stage Butterfly Network in ALUs
     for (int i = 0; i < 8; ++i) {
         uint32_t v = (uint32_t)acc_frag.x[i];
         
-        // Initial non-linear mix
-        v = fast_mix_u32_v5(v);
+        // Initial non-linear mix with tile context
+        v = fast_mix_u32_v5(v ^ tile_idx);
+        uint32_t v_other;
+        
+        // Asymmetric Butterfly: We use addition instead of XOR to prevent identical thread states,
+        // and we inject the thread lane ID to explicitly break symmetry across the warp!
         
         // Stage 1 (swap distance 1)
-        v = fast_mix_u32_v5(v ^ __shfl_xor_sync(0xffffffff, v, 1));
+        v_other = __shfl_xor_sync(0xffffffff, v, 1);
+        v = fast_mix_u32_v5(v + (v_other ^ 0x9E3779B9u) + lane);
         
         // Stage 2 (swap distance 2)
-        v = fast_mix_u32_v5(v ^ __shfl_xor_sync(0xffffffff, v, 2));
+        v_other = __shfl_xor_sync(0xffffffff, v, 2);
+        v = fast_mix_u32_v5(v + (v_other ^ 0x85EBCA6Bu) + lane);
         
         // Stage 3 (swap distance 4)
-        v = fast_mix_u32_v5(v ^ __shfl_xor_sync(0xffffffff, v, 4));
+        v_other = __shfl_xor_sync(0xffffffff, v, 4);
+        v = fast_mix_u32_v5(v + (v_other ^ 0xC2B2AE35u) + lane);
         
         // Stage 4 (swap distance 8)
-        v = fast_mix_u32_v5(v ^ __shfl_xor_sync(0xffffffff, v, 8));
+        v_other = __shfl_xor_sync(0xffffffff, v, 8);
+        v = fast_mix_u32_v5(v + (v_other ^ 0x27D4EB2Fu) + lane);
         
         // Stage 5 (swap distance 16)
-        v = fast_mix_u32_v5(v ^ __shfl_xor_sync(0xffffffff, v, 16));
+        v_other = __shfl_xor_sync(0xffffffff, v, 16);
+        v = fast_mix_u32_v5(v + (v_other ^ 0x165667B1u) + lane);
         
         // Write out directly to global memory as uint32_t
         // Out is dimensioned [num_tiles, 256]. Each thread writes 8 elements.
@@ -131,8 +147,8 @@ void tyche_v5_hybrid_kernel_launch(
     int warps_per_block = threads / 32; // 8
     int blocks = (num_tiles + warps_per_block - 1) / warps_per_block;
     
-    // Shared memory: only 256 bytes for int8, per warp
-    size_t smem_size = warps_per_block * 256;
+    // Shared memory: 1024 bytes for uint32 + 256 bytes for int8 = 1280 bytes per warp
+    size_t smem_size = warps_per_block * 1280;
     
     if (blocks > 0) {
         tyche_v5_hybrid_kernel<<<blocks, threads, smem_size, stream>>>(
