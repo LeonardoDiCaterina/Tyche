@@ -115,6 +115,7 @@ def run_sweep(batch_sizes, num_warmups=3, num_iters=10):
                     print(f"Failed configuration T={tile_size}, R={num_rounds}: {e}")
 
         # 5. Benchmark Tyche V5 Hybrid
+        from tyche.v5_hybrid.config import TycheV5Config
         cfg = TycheV5Config(tile_size=16, num_rounds=1, backend="cuda")
         impl = cfg.build()
         key = jax.random.key(42, impl=impl)
@@ -136,6 +137,30 @@ def run_sweep(batch_sizes, num_warmups=3, num_iters=10):
             print(f"Tyche V5 Hybrid (T=16, R=1): {throughput_gbps:.2f} GB/s")
         except Exception as e:
             print(f"Failed configuration Tyche V5 Hybrid: {e}")
+
+        # 5.1 Benchmark Tyche V5b Bijective
+        from tyche.v5b_bijective.config import TycheV5bHybridConfig
+        cfg = TycheV5bHybridConfig(tile_size=16, num_rounds=1, backend="cuda")
+        impl = cfg.build()
+        key = jax.random.key(42, impl=impl)
+        
+        def gen_tyche_v5b():
+            return jax.random.bits(key, shape=(batch_size,), dtype=jnp.uint32)
+        f_tyche_v5b = jax.jit(gen_tyche_v5b)
+        
+        try:
+            for _ in range(num_warmups): f_tyche_v5b().block_until_ready()
+            t0 = time.perf_counter()
+            for _ in range(num_iters): f_tyche_v5b().block_until_ready()
+            t1 = time.perf_counter()
+            
+            throughput_gbps = (batch_size * 4 * num_iters) / (t1 - t0) / 1e9
+            results.append({
+                "generator": "Tyche V5.b (Bijective)", "tile_size": 16, "num_rounds": 1, "batch_size": batch_size, "throughput_GBs": throughput_gbps
+            })
+            print(f"Tyche V5.b Bijective (T=16, R=1): {throughput_gbps:.2f} GB/s")
+        except Exception as e:
+            print(f"Failed configuration Tyche V5.b Bijective: {e}")
 
         # 6. Benchmark Tyche V3 Philox
         from tyche.v3_philox.config import TycheV3_PhiloxConfig

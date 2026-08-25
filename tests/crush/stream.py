@@ -36,6 +36,9 @@ class TycheStream:
         if generator == "v5":
             from tyche.v5_hybrid.config import TycheV5Config
             impl = TycheV5Config(tile_size=16, num_rounds=1, backend="cuda").build()
+        elif generator == "v5b":
+            from tyche.v5b_bijective.config import TycheV5bHybridConfig
+            impl = TycheV5bHybridConfig(tile_size=16, num_rounds=1, backend="cuda").build()
         else:
             from tyche import impl
             os.environ["JAX_PLATFORMS"] = "cpu" # Default back to CPU for older versions if needed

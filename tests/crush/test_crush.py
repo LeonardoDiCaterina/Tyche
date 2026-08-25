@@ -18,3 +18,10 @@ def test_practrand_32gb():
     assert len(failures) == 0, (
         "PractRand failures at 32GB:\n" + "\n".join(f"  - {f}" for f in failures)
     )
+
+def test_practrand_32gb_v5b():
+    output = _run_practrand(n_uint32=17_179_869_184, tlmax="32GB", generator="v5b")
+    failures = _parse_practrand_failures(output)
+    assert len(failures) == 0, (
+        "PractRand failures at 32GB for V5b:\n" + "\n".join(f"  - {f}" for f in failures)
+    )
