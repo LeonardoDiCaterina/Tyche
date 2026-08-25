@@ -16,6 +16,9 @@ from tyche.v2.config import TycheV2Config
 # Import Tyche V2.1
 from tyche.v2_1.config import TycheV2_1Config
 
+# Import Tyche V5
+from tyche.v5_hybrid.config import TycheV5Config
+
 def run_sweep(batch_sizes, num_warmups=3, num_iters=10):
     results = []
     
@@ -111,7 +114,30 @@ def run_sweep(batch_sizes, num_warmups=3, num_iters=10):
                 except Exception as e:
                     print(f"Failed configuration T={tile_size}, R={num_rounds}: {e}")
 
-        # 5. Benchmark Tyche V3 Philox
+        # 5. Benchmark Tyche V5 Hybrid
+        cfg = TycheV5Config(tile_size=16, num_rounds=1, backend="cuda")
+        impl = cfg.build()
+        key = jax.random.key(42, impl=impl)
+        
+        def gen_tyche_v5():
+            return jax.random.bits(key, shape=(batch_size,), dtype=jnp.uint32)
+        f_tyche_v5 = jax.jit(gen_tyche_v5)
+        
+        try:
+            for _ in range(num_warmups): f_tyche_v5().block_until_ready()
+            t0 = time.perf_counter()
+            for _ in range(num_iters): f_tyche_v5().block_until_ready()
+            t1 = time.perf_counter()
+            
+            throughput_gbps = (batch_size * 4 * num_iters) / (t1 - t0) / 1e9
+            results.append({
+                "generator": "Tyche V5 (Hybrid)", "tile_size": 16, "num_rounds": 1, "batch_size": batch_size, "throughput_GBs": throughput_gbps
+            })
+            print(f"Tyche V5 Hybrid (T=16, R=1): {throughput_gbps:.2f} GB/s")
+        except Exception as e:
+            print(f"Failed configuration Tyche V5 Hybrid: {e}")
+
+        # 6. Benchmark Tyche V3 Philox
         from tyche.v3_philox.config import TycheV3_PhiloxConfig
         for word_size in [32, 64]:
             for num_rounds in [2, 4]:
