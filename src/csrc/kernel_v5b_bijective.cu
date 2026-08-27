@@ -110,10 +110,16 @@ __global__ void tyche_v5b_bijective_kernel(
     
     if (is_debug_thread) t0 = clock64();
     // --- ROUND 1: L' = L + (R * R) ---
-    // Truncate R to 8-bit and store in shared memory
-    for (int i = 0; i < 8; ++i) {
-        int idx = i * 32 + lane;
-        my_smem_i8[idx] = (int8_t)my_smem_u32_R[idx];
+    // Vectorized Cast: 32 threads pack 256 elements in chunks of 4.
+    // 2 iterations * 32 threads * 4 bytes = 256 bytes total.
+    for (int i = 0; i < 2; ++i) {
+        int base = i * 128 + lane * 4;
+        uint32_t v0 = my_smem_u32_R[base + 0];
+        uint32_t v1 = my_smem_u32_R[base + 1];
+        uint32_t v2 = my_smem_u32_R[base + 2];
+        uint32_t v3 = my_smem_u32_R[base + 3];
+        uint32_t packed = (v0 & 0xFF) | ((v1 & 0xFF) << 8) | ((v2 & 0xFF) << 16) | ((v3 & 0xFF) << 24);
+        ((uint32_t*)my_smem_i8)[i * 32 + lane] = packed;
     }
     __syncwarp();
     
@@ -132,10 +138,15 @@ __global__ void tyche_v5b_bijective_kernel(
     
     if (is_debug_thread) t0 = clock64();
     // --- ROUND 2: R' = R + (L' * L') ---
-    // Truncate L' to 8-bit and store in shared memory
-    for (int i = 0; i < 8; ++i) {
-        int idx = i * 32 + lane;
-        my_smem_i8[idx] = (int8_t)my_smem_u32_L[idx];
+    // Vectorized Cast: Truncate L' to 8-bit and store in shared memory
+    for (int i = 0; i < 2; ++i) {
+        int base = i * 128 + lane * 4;
+        uint32_t v0 = my_smem_u32_L[base + 0];
+        uint32_t v1 = my_smem_u32_L[base + 1];
+        uint32_t v2 = my_smem_u32_L[base + 2];
+        uint32_t v3 = my_smem_u32_L[base + 3];
+        uint32_t packed = (v0 & 0xFF) | ((v1 & 0xFF) << 8) | ((v2 & 0xFF) << 16) | ((v3 & 0xFF) << 24);
+        ((uint32_t*)my_smem_i8)[i * 32 + lane] = packed;
     }
     __syncwarp();
     
