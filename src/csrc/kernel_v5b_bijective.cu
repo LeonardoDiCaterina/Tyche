@@ -26,7 +26,8 @@ __global__ void tyche_v5b_bijective_kernel(
     int T,
     int R,
     int embedding_type,
-    const uint32_t* key_mix_ptr
+    const uint32_t* key_mix_ptr,
+    unsigned long long* debug_cycles
 ) {
     if (T != 16) return;
 
@@ -101,6 +102,13 @@ __global__ void tyche_v5b_bijective_kernel(
     wmma::fragment<wmma::accumulator, 16, 16, 16, int32_t> acc_frag_L;
     wmma::fragment<wmma::accumulator, 16, 16, 16, int32_t> acc_frag_R;
     
+    bool is_debug_thread = (blockIdx.x == 0 && threadIdx.x == 0);
+    long long t0, t1, t2;
+    unsigned long long smem_cycles = 0;
+    unsigned long long wmma_cycles = 0;
+    unsigned long long butterfly_cycles = 0;
+    
+    if (is_debug_thread) t0 = clock64();
     // --- ROUND 1: L' = L + (R * R) ---
     // Truncate R to 8-bit and store in shared memory
     for (int i = 0; i < 8; ++i) {
@@ -113,13 +121,16 @@ __global__ void tyche_v5b_bijective_kernel(
     wmma::load_matrix_sync(b_frag, my_smem_i8, 16);
     wmma::load_matrix_sync(acc_frag_L, (const int32_t*)my_smem_u32_L, 16, wmma::mem_row_major);
     
+    if (is_debug_thread) t1 = clock64();
     // Compute L' = L + R * R
     wmma::mma_sync(acc_frag_L, a_frag, b_frag, acc_frag_L);
+    if (is_debug_thread) { t2 = clock64(); smem_cycles += (t1 - t0); wmma_cycles += (t2 - t1); }
     
     // Store L' back to shared memory so we can truncate it for Round 2
     wmma::store_matrix_sync((int32_t*)my_smem_u32_L, acc_frag_L, 16, wmma::mem_row_major);
     __syncwarp();
     
+    if (is_debug_thread) t0 = clock64();
     // --- ROUND 2: R' = R + (L' * L') ---
     // Truncate L' to 8-bit and store in shared memory
     for (int i = 0; i < 8; ++i) {
@@ -132,9 +143,12 @@ __global__ void tyche_v5b_bijective_kernel(
     wmma::load_matrix_sync(b_frag, my_smem_i8, 16);
     wmma::load_matrix_sync(acc_frag_R, (const int32_t*)my_smem_u32_R, 16, wmma::mem_row_major);
     
+    if (is_debug_thread) t1 = clock64();
     // Compute R' = R + L' * L'
     wmma::mma_sync(acc_frag_R, a_frag, b_frag, acc_frag_R);
+    if (is_debug_thread) { t2 = clock64(); smem_cycles += (t1 - t0); wmma_cycles += (t2 - t1); }
     
+    if (is_debug_thread) t0 = clock64();
     // 3. Feistel Butterfly Network
     for (int i = 0; i < 8; ++i) {
         uint32_t vL = (uint32_t)acc_frag_L.x[i];
@@ -142,31 +156,31 @@ __global__ void tyche_v5b_bijective_kernel(
         
         uint32_t v_other;
         
-        // Stage 1 (swap distance 1)
+        // Stage 1 (swap distance 1) - LINEAR ONLY
         v_other = __shfl_xor_sync(0xffffffff, vR, 1);
-        vL = fast_mix_u32_v5b(vL + (v_other ^ 0x9E3779B9u) + lane);
+        vL = vL + (v_other ^ 0x9E3779B9u) + lane;
         v_other = __shfl_xor_sync(0xffffffff, vL, 1);
-        vR = fast_mix_u32_v5b(vR + (v_other ^ 0x9E3779B9u) + lane);
+        vR = vR + (v_other ^ 0x9E3779B9u) + lane;
         
-        // Stage 2 (swap distance 2)
+        // Stage 2 (swap distance 2) - LINEAR ONLY
         v_other = __shfl_xor_sync(0xffffffff, vR, 2);
-        vL = fast_mix_u32_v5b(vL + (v_other ^ 0x85EBCA6Bu) + lane);
+        vL = vL + (v_other ^ 0x85EBCA6Bu) + lane;
         v_other = __shfl_xor_sync(0xffffffff, vL, 2);
-        vR = fast_mix_u32_v5b(vR + (v_other ^ 0x85EBCA6Bu) + lane);
+        vR = vR + (v_other ^ 0x85EBCA6Bu) + lane;
         
-        // Stage 3 (swap distance 4)
+        // Stage 3 (swap distance 4) - NON-LINEAR MIX
         v_other = __shfl_xor_sync(0xffffffff, vR, 4);
         vL = fast_mix_u32_v5b(vL + (v_other ^ 0xC2B2AE35u) + lane);
         v_other = __shfl_xor_sync(0xffffffff, vL, 4);
         vR = fast_mix_u32_v5b(vR + (v_other ^ 0xC2B2AE35u) + lane);
         
-        // Stage 4 (swap distance 8)
+        // Stage 4 (swap distance 8) - LINEAR ONLY
         v_other = __shfl_xor_sync(0xffffffff, vR, 8);
-        vL = fast_mix_u32_v5b(vL + (v_other ^ 0x27D4EB2Fu) + lane);
+        vL = vL + (v_other ^ 0x27D4EB2Fu) + lane;
         v_other = __shfl_xor_sync(0xffffffff, vL, 8);
-        vR = fast_mix_u32_v5b(vR + (v_other ^ 0x27D4EB2Fu) + lane);
+        vR = vR + (v_other ^ 0x27D4EB2Fu) + lane;
         
-        // Stage 5 (swap distance 16)
+        // Stage 5 (swap distance 16) - NON-LINEAR MIX
         v_other = __shfl_xor_sync(0xffffffff, vR, 16);
         vL = fast_mix_u32_v5b(vL + (v_other ^ 0x165667B1u) + lane);
         v_other = __shfl_xor_sync(0xffffffff, vL, 16);
@@ -180,6 +194,14 @@ __global__ void tyche_v5b_bijective_kernel(
         if (tile_idx_base + 1 < num_tiles) {
             out[(tile_idx_base + 1) * 256 + out_idx] = vR;
         }
+    }
+    
+    if (is_debug_thread) { 
+        t1 = clock64(); 
+        butterfly_cycles = (t1 - t0); 
+        debug_cycles[0] = smem_cycles;
+        debug_cycles[1] = wmma_cycles;
+        debug_cycles[2] = butterfly_cycles;
     }
 }
 
@@ -206,9 +228,27 @@ void tyche_v5b_bijective_kernel_launch(
     // Shared memory: 2048 bytes for uint32 + 256 bytes for int8 = 2304 bytes per warp
     size_t smem_size = warps_per_block * 2304;
     
+    unsigned long long* d_debug_cycles = nullptr;
+    cudaMalloc(&d_debug_cycles, 3 * sizeof(unsigned long long));
+    cudaMemset(d_debug_cycles, 0, 3 * sizeof(unsigned long long));
+    
     if (blocks > 0) {
         tyche_v5b_bijective_kernel<<<blocks, threads, smem_size, stream>>>(
-            out, key, weight_matrices, offset, num_tiles, T, R, embedding_type, key_mix_ptr
+            out, key, weight_matrices, offset, num_tiles, T, R, embedding_type, key_mix_ptr, d_debug_cycles
         );
     }
+    
+    // Only print debug cycles if this is the default stream (or just synchronize and print anyway for profiling)
+    // We synchronize stream so we can accurately read back the memory. This breaks async execution but it's an MVP profiling.
+    cudaStreamSynchronize(stream);
+    
+    unsigned long long h_debug[3];
+    cudaMemcpy(h_debug, d_debug_cycles, 3 * sizeof(unsigned long long), cudaMemcpyDeviceToHost);
+    cudaFree(d_debug_cycles);
+    
+    std::cout << "\n=== PROFILING KERNEL V5B (clock64) ===" << std::endl;
+    std::cout << "SMEM Cast & Load Latency: " << h_debug[0] << " cycles" << std::endl;
+    std::cout << "WMMA mma_sync Latency:    " << h_debug[1] << " cycles" << std::endl;
+    std::cout << "Butterfly ALU Latency:    " << h_debug[2] << " cycles" << std::endl;
+    std::cout << "======================================" << std::endl;
 }
